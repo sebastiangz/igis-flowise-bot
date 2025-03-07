@@ -944,3 +944,707 @@ class IGIS_Flowise_Bot {
         }
         
         return $data;
+    }
+    
+    private function get_messages_chart_data() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'igis_bot_messages';
+        
+        // Datos de los últimos 30 días
+        $data = array();
+        for ($i = 29; $i >= 0; $i--) {
+            $date = date('Y-m-d', strtotime("-$i days"));
+            
+            // Contar mensajes de usuario y bot por separado
+            $user_count = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM $table WHERE DATE(timestamp) = %s AND type = 'user'",
+                $date
+            ));
+            
+            $bot_count = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM $table WHERE DATE(timestamp) = %s AND type = 'bot'",
+                $date
+            ));
+            
+            $data[] = array(
+                'date' => $date,
+                'user' => (int)$user_count,
+                'bot' => (int)$bot_count
+            );
+        }
+        
+        return $data;
+    }
+
+    public function render_bot() {
+        if (!$this->should_display_bot()) {
+            return;
+        }
+        
+        $options = $this->get_sanitized_options();
+        
+        // Verificar campos requeridos antes de renderizar
+        if (empty($options['chatflow_id']) || empty($options['api_host'])) {
+            if ($options['debug_mode'] && current_user_can('manage_options')) {
+                echo '<!-- IGIS Bot: Configuración incompleta. Asegúrese de configurar chatflow_id y api_host -->';
+            }
+            return;
+        }
+        
+        // Preparar los datos de starter prompts correctamente
+        $starter_prompts = array();
+        if (!empty($options['starter_prompts'])) {
+            $starter_prompts = array_map('trim', explode("\n", $options['starter_prompts']));
+        }
+        
+        // JavaScript para registrar conversaciones y mensajes si está habilitado
+        $tracking_script = '';
+        if ($options['save_conversations']) {
+            $tracking_script = "
+            <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                // Generar o recuperar ID de sesión
+                let sessionId = localStorage.getItem('igis_bot_session_id');
+                if (!sessionId) {
+                    sessionId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+                    localStorage.setItem('igis_bot_session_id', sessionId);
+                }
+                
+                let conversationId = null;
+                
+                // Registrar inicio de conversación cuando se abra el chatbot
+                document.addEventListener('flowise:chatOpen', function() {
+                    fetch('" . admin_url('admin-ajax.php') . "', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams({
+                            'action': 'igis_bot_log_conversation',
+                            'nonce': '" . wp_create_nonce('igis_bot_frontend') . "',
+                            'session_id': sessionId,
+                            'status': 'active'
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            conversationId = data.data.conversation_id;
+                        }
+                    });
+                });
+                
+                // Registrar mensajes enviados por el usuario
+                document.addEventListener('flowise:messageSubmitted', function(e) {
+                    if (!conversationId) return;
+                    
+                    fetch('" . admin_url('admin-ajax.php') . "', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams({
+                            'action': 'igis_bot_log_message',
+                            'nonce': '" . wp_create_nonce('igis_bot_frontend') . "',
+                            'conversation_id': conversationId,
+                            'message': e.detail.message,
+                            'type': 'user'
+                        })
+                    });
+                });
+                
+                // Registrar respuestas del bot
+                document.addEventListener('flowise:messageReceived', function(e) {
+                    if (!conversationId) return;
+                    
+                    fetch('" . admin_url('admin-ajax.php') . "', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams({
+                            'action': 'igis_bot_log_message',
+                            'nonce': '" . wp_create_nonce('igis_bot_frontend') . "',
+                            'conversation_id': conversationId,
+                            'message': e.detail.message,
+                            'type': 'bot'
+                        })
+                    });
+                });
+                
+                // Actualizar estado al cerrar la conversación
+                document.addEventListener('flowise:chatClose', function() {
+                    if (!conversationId) return;
+                    
+                    fetch('" . admin_url('admin-ajax.php') . "', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams({
+                            'action': 'igis_bot_log_conversation',
+                            'nonce': '" . wp_create_nonce('igis_bot_frontend') . "',
+                            'session_id': sessionId,
+                            'status': 'completed'
+                        })
+                    });
+                });
+            });
+            </script>
+            ";
+        }
+        
+        // Configuración del bot
+        $bot_config = array(
+            'chatflowid' => $options['chatflow_id'],
+            'apiHost' => $options['api_host'],
+            'theme' => array(
+                'button' => array(
+                    'backgroundColor' => $options['button_color'],
+                    'right' => intval($options['button_position_right']),
+                    'bottom' => intval($options['button_position_bottom']),
+                    'size' => intval($options['button_size']),
+                    'iconColor' => $options['icon_color'],
+                    'customIconSrc' => $options['custom_icon'],
+                    'dragable' => $options['enable_drag']
+                ),
+                'chatWindow' => array(
+                    'welcomeMessage' => $options['welcome_message'],
+                    'backgroundColor' => $options['window_background_color'],
+                    'height' => intval($options['window_height']),
+                    'width' => intval($options['window_width']),
+                    'fontSize' => intval($options['font_size']),
+                    'title' => $options['window_title'],
+                    'errorMessage' => $options['error_message']
+                ),
+                'userMessage' => array(
+                    'backgroundColor' => $options['user_message_bg_color'],
+                    'textColor' => $options['user_message_text_color'],
+                    'showAvatar' => $options['user_avatar_enabled'],
+                    'avatarSrc' => $options['user_avatar_src']
+                ),
+                'botMessage' => array(
+                    'backgroundColor' => $options['bot_message_bg_color'],
+                    'textColor' => $options['bot_message_text_color'],
+                    'showAvatar' => $options['bot_avatar_enabled'],
+                    'avatarSrc' => $options['bot_avatar_src']
+                ),
+                'textInput' => array(
+                    'placeholder' => $options['input_placeholder'],
+                    'backgroundColor' => $options['input_bg_color'],
+                    'textColor' => $options['input_text_color'],
+                    'sendButtonColor' => $options['input_send_button_color'],
+                    'maxInputChars' => intval($options['max_chars'])
+                ),
+                'tooltip' => array(
+                    'showTooltip' => $options['show_tooltip'],
+                    'tooltipMessage' => $options['tooltip_message'],
+                    'backgroundColor' => $options['tooltip_bg_color'],
+                    'textColor' => $options['tooltip_text_color'],
+                    'fontSize' => intval($options['tooltip_font_size'])
+                )
+            )
+        );
+        
+        // Añadir autoWindowOpen si está habilitado
+        if ($options['auto_open']) {
+            $bot_config['theme']['button']['autoWindowOpen'] = array(
+                'autoOpen' => true,
+                'openDelay' => intval($options['auto_open_delay']),
+                'autoOpenOnMobile' => $options['auto_open_mobile']
+            );
+        }
+        
+        // Añadir starter prompts si hay alguno
+        if (!empty($starter_prompts)) {
+            $bot_config['theme']['chatWindow']['starterPrompts'] = $starter_prompts;
+        }
+        
+        // Añadir footer si hay texto de footer
+        if (!empty($options['footer_text'])) {
+            $bot_config['theme']['chatWindow']['footer'] = array(
+                'textColor' => $options['footer_text_color'],
+                'text' => $options['footer_text']
+            );
+            
+            if (!empty($options['footer_company'])) {
+                $bot_config['theme']['chatWindow']['footer']['company'] = $options['footer_company'];
+                $bot_config['theme']['chatWindow']['footer']['companyLink'] = $options['footer_company_link'];
+            }
+        }
+        
+        // Añadir disclaimer si está habilitado
+        if ($options['show_disclaimer']) {
+            $bot_config['theme']['chatWindow']['disclaimer'] = array(
+                'show' => true,
+                'title' => $options['disclaimer_title'],
+                'message' => $options['disclaimer_message'],
+                'buttonText' => $options['disclaimer_button_text'],
+                'buttonColor' => $options['disclaimer_button_color'],
+                'textColor' => $options['disclaimer_text_color'],
+                'backgroundColor' => $options['disclaimer_bg_color'],
+                'blurredBackgroundColor' => $options['disclaimer_overlay_color']
+            );
+        }
+        
+        // Configuración de sonidos
+        if ($options['enable_send_sound']) {
+            $bot_config['theme']['textInput']['sendMessageSound'] = true;
+            if (!empty($options['send_sound_url'])) {
+                $bot_config['theme']['textInput']['sendSoundLocation'] = $options['send_sound_url'];
+            }
+        }
+        
+        if ($options['enable_receive_sound']) {
+            $bot_config['theme']['textInput']['receiveMessageSound'] = true;
+            if (!empty($options['receive_sound_url'])) {
+                $bot_config['theme']['textInput']['receiveSoundLocation'] = $options['receive_sound_url'];
+            }
+        }
+        
+        // Headers personalizados si existen
+        if (!empty($options['custom_headers'])) {
+            $headers = json_decode($options['custom_headers'], true);
+            if (is_array($headers)) {
+                $bot_config['headers'] = $headers;
+            }
+        }
+        
+        ?>
+        <script type="module">
+            import Chatbot from "https://cdn.jsdelivr.net/npm/flowise-embed/dist/web.js"
+            Chatbot.init(<?php echo json_encode($bot_config); ?>);
+            
+            <?php if ($options['debug_mode']): ?>
+            console.log('IGIS Bot Debug Mode:', {
+                version: '<?php echo IGIS_BOT_VERSION; ?>',
+                options: <?php echo json_encode($options); ?>
+            });
+            <?php endif; ?>
+        </script>
+        
+        <?php echo $tracking_script; ?>
+
+        <?php if (!empty($options['custom_css'])): ?>
+        <style type="text/css">
+            <?php echo wp_strip_all_tags($options['custom_css']); ?>
+        </style>
+        <?php endif; ?>
+
+        <?php if (!empty($options['custom_js'])): ?>
+        <script type="text/javascript">
+            <?php echo $options['custom_js']; ?>
+        </script>
+        <?php endif; ?>
+        <?php
+    }
+
+    private function should_display_bot() {
+        $options = $this->options;
+        
+        // Verificar si estamos en modo móvil y está deshabilitado para móviles
+        if (isset($options['hide_on_mobile']) && $options['hide_on_mobile'] && wp_is_mobile()) {
+            return false;
+        }
+
+        // Verificar restricciones de usuario
+        if (isset($options['show_for_logged_in']) && $options['show_for_logged_in'] && !is_user_logged_in()) {
+            return false;
+        }
+
+        // Verificar roles de usuario
+        if (!empty($options['show_for_roles']) && is_user_logged_in()) {
+            $user = wp_get_current_user();
+            $intersect = array_intersect($options['show_for_roles'], (array)$user->roles);
+            if (empty($intersect)) {
+                return false;
+            }
+        }
+
+        // Verificar páginas de visualización
+        $display_pages = isset($options['display_pages']) ? $options['display_pages'] : array('all');
+        
+        if (in_array('all', $display_pages)) {
+            return true;
+        }
+
+        if (is_page() && in_array(get_the_ID(), $display_pages)) {
+            return true;
+        }
+
+        if (is_single() && in_array('posts', $display_pages)) {
+            return true;
+        }
+
+        if (is_archive() && in_array('archives', $display_pages)) {
+            return true;
+        }
+
+        if (is_home() && in_array('blog', $display_pages)) {
+            return true;
+        }
+
+        if (is_front_page() && in_array('front_page', $display_pages)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function get_available_pages() {
+        $pages = get_pages();
+        $options = array(
+            'all' => __('Todas las páginas', 'igis-flowise-bot'),
+            'front_page' => __('Página de inicio', 'igis-flowise-bot'),
+            'blog' => __('Página del blog', 'igis-flowise-bot'),
+            'posts' => __('Entradas individuales', 'igis-flowise-bot'),
+            'archives' => __('Páginas de archivo', 'igis-flowise-bot')
+        );
+
+        foreach ($pages as $page) {
+            $options[$page->ID] = $page->post_title;
+        }
+
+        return $options;
+    }
+
+    private function get_user_roles() {
+        if (!function_exists('get_editable_roles')) {
+            require_once(ABSPATH . 'wp-admin/includes/user.php');
+        }
+        
+        $roles = get_editable_roles();
+        $role_options = array();
+        
+        foreach ($roles as $role_id => $role_data) {
+            $role_options[$role_id] = $role_data['name'];
+        }
+        
+        return $role_options;
+    }
+
+    private function get_total_conversations() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'igis_bot_conversations';
+        
+        // Verificar si la tabla existe
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+            return 0;
+        }
+        
+        return $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}");
+    }
+
+    private function get_total_messages() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'igis_bot_messages';
+        
+        // Verificar si la tabla existe
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+            return 0;
+        }
+        
+        return $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}");
+    }
+
+    private function get_response_rate() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'igis_bot_conversations';
+        
+        // Verificar si la tabla existe
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+            return 0;
+        }
+        
+        $total = $this->get_total_conversations();
+        if ($total === 0) return 0;
+        
+        $responded = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE status = 'completed'");
+        return round(($responded / $total) * 100, 2);
+    }
+
+    public function enqueue_admin_assets($hook) {
+        if ('toplevel_page_igis-flowise-bot' !== $hook && 
+            'igis-bot_page_igis-flowise-bot-stats' !== $hook &&
+            'igis-bot_page_igis-flowise-bot-conversations' !== $hook) {
+            return;
+        }
+
+        // Color Picker
+        wp_enqueue_style('wp-color-picker');
+        wp_enqueue_script('wp-color-picker');
+        
+        // Media Uploader
+        wp_enqueue_media();
+        
+        // Custom Admin Styles
+        wp_enqueue_style(
+            'igis-bot-admin',
+            IGIS_BOT_PLUGIN_URL . 'assets/css/admin.css',
+            array(),
+            IGIS_BOT_VERSION
+        );
+        
+        // Chart.js para estadísticas
+        if ('igis-bot_page_igis-flowise-bot-stats' === $hook) {
+            wp_enqueue_script(
+                'chartjs',
+                'https://cdn.jsdelivr.net/npm/chart.js',
+                array(),
+                '3.7.0',
+                true
+            );
+        }
+        
+        // Custom Admin Scripts
+        wp_enqueue_script(
+            'igis-bot-admin',
+            IGIS_BOT_PLUGIN_URL . 'assets/js/admin.js',
+            array('jquery', 'wp-color-picker'),
+            IGIS_BOT_VERSION,
+            true
+        );
+
+        // Localize script
+        wp_localize_script('igis-bot-admin', 'igisBotAdmin', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('igis_bot_admin'),
+            'strings' => array(
+                'confirmDelete' => __('¿Está seguro de que desea eliminar esta conversación?', 'igis-flowise-bot'),
+                'errorLoading' => __('Error al cargar los datos', 'igis-flowise-bot'),
+                'saveSuccess' => __('Configuración guardada correctamente', 'igis-flowise-bot'),
+                'saveError' => __('Error al guardar la configuración', 'igis-flowise-bot')
+            )
+        ));
+    }
+
+    public function enqueue_frontend_assets() {
+        if (!$this->should_display_bot()) {
+            return;
+        }
+
+        // Estilos del front-end
+        wp_enqueue_style(
+            'igis-bot-frontend',
+            IGIS_BOT_PLUGIN_URL . 'assets/css/frontend.css',
+            array(),
+            IGIS_BOT_VERSION
+        );
+
+        // Scripts del front-end
+        wp_enqueue_script(
+            'igis-bot-frontend',
+            IGIS_BOT_PLUGIN_URL . 'assets/js/frontend.js',
+            array('jquery'),
+            IGIS_BOT_VERSION,
+            true
+        );
+
+        // Localizar script
+        wp_localize_script('igis-bot-frontend', 'igisBotFrontend', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('igis_bot_frontend'),
+            'strings' => array(
+                'errorMessage' => isset($this->options['error_message']) ? $this->options['error_message'] : 'Ha ocurrido un error.'
+            )
+        ));
+    }
+
+    public function sanitize_options($input) {
+        $sanitized = array();
+        
+        foreach ($input as $key => $value) {
+            switch ($key) {
+                // Campos de texto simples
+                case 'chatflow_id':
+                case 'window_title':
+                case 'welcome_message':
+                case 'error_message':
+                case 'input_placeholder':
+                case 'max_chars_warning':
+                case 'footer_text':
+                case 'footer_company':
+                case 'disclaimer_title':
+                case 'disclaimer_message':
+                case 'disclaimer_button_text':
+                    $sanitized[$key] = sanitize_text_field($value);
+                    break;
+
+                // URLs
+                case 'api_host':
+                case 'custom_icon':
+                case 'bot_avatar_src':
+                case 'user_avatar_src':
+                case 'send_sound_url':
+                case 'receive_sound_url':
+                case 'footer_company_link':
+                case 'webhook_url':
+                    $sanitized[$key] = esc_url_raw($value);
+                    break;
+
+                // Colores
+                case 'button_color':
+                case 'icon_color':
+                case 'window_background_color':
+                case 'bot_message_bg_color':
+                case 'bot_message_text_color':
+                case 'user_message_bg_color':
+                case 'user_message_text_color':
+                case 'input_bg_color':
+                case 'input_text_color':
+                case 'input_send_button_color':
+                case 'tooltip_bg_color':
+                case 'tooltip_text_color':
+                case 'footer_text_color':
+                case 'disclaimer_button_color':
+                case 'disclaimer_text_color':
+                case 'disclaimer_bg_color':
+                    $sanitized[$key] = sanitize_hex_color($value);
+                    break;
+
+                // Números
+                case 'button_position_right':
+                case 'button_position_bottom':
+                case 'button_size':
+                case 'window_height':
+                case 'window_width':
+                case 'font_size':
+                case 'tooltip_font_size':
+                case 'max_chars':
+                case 'auto_open_delay':
+                case 'rate_limiting':
+                case 'session_timeout':
+                    $sanitized[$key] = absint($value);
+                    break;
+
+                // Booleanos
+                case 'enable_drag':
+                case 'auto_open':
+                case 'auto_open_mobile':
+                case 'show_tooltip':
+                case 'bot_avatar_enabled':
+                case 'user_avatar_enabled':
+                case 'auto_focus':
+                case 'enable_send_sound':
+                case 'enable_receive_sound':
+                case 'show_disclaimer':
+                case 'debug_mode':
+                case 'save_conversations':
+                case 'analytics_enabled':
+                case 'show_for_logged_in':
+                case 'hide_on_mobile':
+                    $sanitized[$key] = (bool)$value;
+                    break;
+
+                // Arrays
+                case 'display_pages':
+                case 'show_for_roles':
+                case 'webhook_events':
+                    $sanitized[$key] = is_array($value) ? array_map('sanitize_text_field', $value) : array();
+                    break;
+
+                // Código personalizado
+                case 'custom_css':
+                    $sanitized[$key] = wp_strip_all_tags($value);
+                    break;
+                case 'custom_js':
+                case 'custom_headers':
+                    $sanitized[$key] = $value; // No sanitizamos JavaScript o JSON personalizado
+                    break;
+
+                // Campos multilínea
+                case 'starter_prompts':
+                    $sanitized[$key] = sanitize_textarea_field($value);
+                    break;
+
+                // Color con transparencia
+                case 'disclaimer_overlay_color':
+                    $sanitized[$key] = $value; // Permitimos rgba()
+                    break;
+
+                default:
+                    $sanitized[$key] = sanitize_text_field($value);
+                    break;
+            }
+        }
+
+        return $sanitized;
+    }
+
+    private function get_sanitized_options() {
+        return array_merge($this->get_default_options(), $this->options);
+    }
+
+    private function get_default_options() {
+        return array(
+            'chatflow_id' => '',
+            'api_host' => '',
+            'button_color' => '#3B81F6',
+            'button_position_right' => 20,
+            'button_position_bottom' => 20,
+            'button_size' => 48,
+            'enable_drag' => true,
+            'icon_color' => 'white',
+            'custom_icon' => 'https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/svg/google-messages.svg',
+            'window_title' => 'IGIS Bot',
+            'welcome_message' => 'Hello! How can I help you today?',
+            'error_message' => 'Lo siento, ha ocurrido un error. Por favor, intenta de nuevo.',
+            'window_height' => 700,
+            'window_width' => 400,
+            'window_background_color' => '#ffffff',
+            'font_size' => 16,
+            'bot_message_bg_color' => '#f7f8ff',
+            'bot_message_text_color' => '#303235',
+            'user_message_bg_color' => '#3B81F6',
+            'user_message_text_color' => '#ffffff',
+            'input_placeholder' => 'Type your question',
+            'input_bg_color' => '#ffffff',
+            'input_text_color' => '#303235',
+            'input_send_button_color' => '#3B81F6',
+            'show_tooltip' => true,
+            'tooltip_message' => 'Hi There 👋!',
+            'tooltip_bg_color' => 'black',
+            'tooltip_text_color' => 'white',
+            'tooltip_font_size' => 16,
+            'footer_text_color' => '#303235',
+            'footer_text' => 'Powered by IGIS Bot',
+            'footer_company' => 'InfraestructuraGIS',
+            'footer_company_link' => 'https://www.infraestructuragis.com/'
+        );
+    }
+}
+
+// Inicializar el plugin
+function igis_flowise_bot_init() {
+    return IGIS_Flowise_Bot::get_instance();
+}
+
+// Función de instalación
+function igis_flowise_bot_install() {
+    $plugin = IGIS_Flowise_Bot::get_instance();
+    $plugin->activate();
+}
+
+// Función de desinstalación
+function igis_flowise_bot_uninstall() {
+    global $wpdb;
+    
+    // Solo si se ha habilitado la opción de eliminar datos
+    if (get_option('igis_bot_delete_data')) {
+        // Eliminar tablas
+        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}igis_bot_messages");
+        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}igis_bot_conversations");
+        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}igis_bot_analytics");
+        
+        // Eliminar opciones
+        delete_option('igis_bot_options');
+        delete_option('igis_bot_delete_data');
+    }
+}
+
+// Registrar hooks
+register_activation_hook(__FILE__, 'igis_flowise_bot_install');
+register_uninstall_hook(__FILE__, 'igis_flowise_bot_uninstall');
+
+// Arrancar el plugin
+add_action('plugins_loaded', 'igis_flowise_bot_init');
