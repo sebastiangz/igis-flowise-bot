@@ -1,3 +1,8 @@
+/**
+ * Estilos para la administración del plugin IGIS Flowise Bot
+ */
+
+/* Estilos generales */
 .igis-bot-admin-wrap {
     margin: 20px;
 }
@@ -6,24 +11,31 @@
     margin-bottom: 20px;
 }
 
+/* Secciones de configuración */
 .settings-section {
     display: none;
     background: #fff;
     padding: 20px;
     border: 1px solid #ccd0d4;
+    border-radius: 4px;
     box-shadow: 0 1px 1px rgba(0,0,0,.04);
+    margin-bottom: 20px;
 }
 
 .settings-section.active {
     display: block;
 }
 
+/* Formularios y campos */
 .form-table th {
     padding: 20px 10px;
+    width: 200px;
+    vertical-align: top;
 }
 
 .form-table td {
     padding: 15px 10px;
+    vertical-align: middle;
 }
 
 .color-picker-wrapper {
@@ -35,40 +47,31 @@
     margin-left: 10px !important;
 }
 
-.preview-section {
-    background: #f5f5f5;
-    padding: 20px;
-    margin: 20px 0;
-    border-radius: 4px;
-}
-
-.bot-preview {
-    position: relative;
-    width: 100%;
-    height: 400px;
+.media-preview {
+    margin-top: 10px;
+    max-width: 150px;
+    max-height: 150px;
+    overflow: hidden;
     border: 1px solid #ddd;
-    margin-top: 20px;
+    padding: 5px;
+    border-radius: 3px;
 }
 
-.bot-preview-button {
-    position: absolute;
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.3s ease;
+.media-preview img {
+    max-width: 100%;
+    height: auto;
 }
 
-.bot-preview-icon {
-    width: 24px;
-    height: 24px;
+.field-description {
+    color: #666;
+    font-style: italic;
+    margin: 5px 0;
+    font-size: 12px;
 }
 
+/* Categorías de campos */
 .field-group {
-    margin-bottom: 15px;
+    margin-bottom: 20px;
     padding: 15px;
     background: #fff;
     border: 1px solid #e5e5e5;
@@ -80,43 +83,346 @@
     margin-bottom: 15px;
     padding-bottom: 10px;
     border-bottom: 1px solid #eee;
+    color: #23282d;
+    font-size: 14px;
 }
 
-.field-description {
-    color: #666;
-    font-style: italic;
-    margin: 5px 0;
+/* Vista previa del bot */
+.bot-preview {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 99999;
+    display: none;
+    justify-content: center;
+    align-items: center;
 }
 
-.message-preview {
+.bot-preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     padding: 15px;
-    margin: 10px 0;
-    border-radius: 8px;
-    max-width: 80%;
+    background-color: #f5f5f5;
+    border-bottom: 1px solid #ddd;
 }
 
-.message-preview.bot {
-    background: #f7f8ff;
-    margin-right: auto;
+.close-preview {
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
 }
 
-.message-preview.user {
-    background: #3B81F6;
-    color: white;
-    margin-left: auto;
+.close-preview:hover {
+    color: #dc3232;
 }
 
-.starter-prompts-container {
+.bot-preview-content {
+    background-color: #fff;
+    border-radius: 4px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    width: 90%;
+    max-width: 1000px;
+    height: 90%;
+    max-height: 800px;
+    overflow: auto;
+}
+
+/* Página de estadísticas */
+.igis-bot-stats-wrap {
+    margin: 20px;
+}
+
+.stats-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.stats-card {
+    flex: 1;
+    min-width: 250px;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    padding: 20px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+    text-align: center;
+}
+
+.stats-card h3 {
+    margin-top: 0;
+    color: #23282d;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.stats-value {
+    font-size: 32px;
+    font-weight: bold;
+    color: #3B81F6;
     margin: 15px 0;
 }
 
-.starter-prompt-item {
+.stats-charts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 30px;
+    margin-top: 20px;
+}
+
+.chart-container {
+    flex: 1;
+    min-width: 450px;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    padding: 20px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+/* Página de conversaciones */
+.igis-bot-conversations-wrap {
+    margin: 20px;
+}
+
+.igis-bot-conversations-wrap .wp-list-table {
+    margin-top: 20px;
+}
+
+.status-active {
+    color: #00a32a;
+    font-weight: bold;
+}
+
+.status-completed {
+    color: #1e72bd;
+    font-weight: bold;
+}
+
+.igis-bot-conversations-wrap .actions {
+    white-space: nowrap;
+}
+
+/* Modal para ver conversaciones */
+.igis-bot-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 99999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background-color: #fff;
+    border-radius: 4px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    width: 90%;
+    max-width: 800px;
+    height: 90%;
+    max-height: 800px;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background-color: #f5f5f5;
+    border-bottom: 1px solid #ddd;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.close-modal {
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+}
+
+.modal-body {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.loading {
+    text-align: center;
+    padding: 20px;
+    color: #666;
+}
+
+/* Información de la conversación */
+.conversation-info {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 20px;
+    background-color: #f9f9f9;
+    padding: 15px;
+    border-radius: 4px;
+}
+
+.info-item {
+    flex: 1;
+    min-width: 150px;
+}
+
+.label {
+    font-weight: bold;
+    color: #23282d;
+}
+
+/* Mensajes de la conversación */
+.conversation-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.message {
+    max-width: 80%;
+    padding: 12px 15px;
+    border-radius: 8px;
+    position: relative;
+}
+
+.message.user {
+    align-self: flex-end;
+    background-color: #3B81F6;
+    color: white;
+}
+
+.message.bot {
+    align-self: flex-start;
+    background-color: #f7f8ff;
+    color: #303235;
+}
+
+.message-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 5px;
+}
+
+.message-sender {
+    font-weight: bold;
+}
+
+.message-time {
+    opacity: 0.8;
+}
+
+.message-content {
+    word-break: break-word;
+}
+
+.no-messages {
+    text-align: center;
+    padding: 30px;
+    color: #666;
+    font-style: italic;
+}
+
+/* Campos dependientes */
+.field-dependent {
+    padding-left: 15px;
+    margin-top: 10px;
+    border-left: 3px solid #3B81F6;
+}
+
+/* Responsive */
+@media screen and (max-width: 782px) {
+    .form-table th {
+        width: auto;
+        padding: 10px 0;
+    }
+    
+    .form-table td {
+        padding: 10px 0;
+    }
+    
+    .stats-card,
+    .chart-container {
+        min-width: 100%;
+    }
+    
+    .conversation-info {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .info-item {
+        min-width: 100%;
+    }
+    
+    .message {
+        max-width: 90%;
+    }
+}
+
+/* Tooltips de ayuda */
+.tooltip-icon {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    background-color: #3B81F6;
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 16px;
+    font-size: 12px;
+    margin-left: 5px;
+    cursor: help;
+}
+
+.tooltip-content {
+    display: none;
+    position: absolute;
+    background-color: #23282d;
+    color: white;
+    padding: 10px;
+    border-radius: 4px;
+    max-width: 300px;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.tooltip-icon:hover + .tooltip-content {
+    display: block;
+}
+
+/* Estilos para pestañas adicionales */
+.add-prompts-button {
+    margin-top: 10px !important;
+}
+
+.prompt-item {
     display: flex;
     align-items: center;
     margin-bottom: 10px;
 }
 
-.starter-prompt-item input {
+.prompt-item input {
     flex: 1;
     margin-right: 10px;
 }
@@ -124,85 +430,128 @@
 .remove-prompt {
     color: #dc3232;
     cursor: pointer;
+    font-size: 18px;
 }
 
-.sound-settings,
-.display-settings,
-.advanced-settings {
-    background: #fff;
+/* Notificaciones */
+.notification {
+    padding: 10px 15px;
+    margin: 15px 0;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.notification.success {
+    background-color: #ecf8f0;
+    color: #00a32a;
+    border-left: 4px solid #00a32a;
+}
+
+.notification.error {
+    background-color: #fcf0f1;
+    color: #dc3232;
+    border-left: 4px solid #dc3232;
+}
+
+.notification.warning {
+    background-color: #fcf9e8;
+    color: #dba617;
+    border-left: 4px solid #dba617;
+}
+
+.notification .close {
+    cursor: pointer;
+    font-size: 18px;
+}
+
+/* Estilos para la exportación/importación */
+.import-export-panel {
+    background-color: #fff;
     padding: 20px;
-    margin-top: 20px;
     border: 1px solid #ccd0d4;
-    border-radius: 3px;
+    border-radius: 4px;
+    margin-top: 20px;
 }
 
-.toggle-section {
-    margin: 15px 0;
+.import-export-panel h3 {
+    margin-top: 0;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
 }
 
-.toggle-content {
-    display: none;
+.export-button, 
+.import-button {
+    margin-top: 10px !important;
+}
+
+.import-file {
+    margin: 10px 0;
+}
+
+/* Estilos para sección de pruebas */
+.test-area {
+    margin-top: 20px;
     padding: 15px;
-    background: #f9f9f9;
-    margin-top: 10px;
-    border-left: 4px solid #3B81F6;
-}
-
-.toggle-content.active {
-    display: block;
-}
-
-.page-selector {
-    max-height: 200px;
-    overflow-y: auto;
+    background-color: #f9f9f9;
     border: 1px solid #ddd;
-    padding: 10px;
-    margin: 10px 0;
-}
-
-.page-selector label {
-    display: block;
-    margin: 5px 0;
-}
-
-.custom-css-editor {
-    width: 100%;
-    height: 200px;
-    font-family: monospace;
-    margin: 10px 0;
-}
-
-.disclaimer-preview {
-    background: rgba(0, 0, 0, 0.4);
-    padding: 20px;
-    border-radius: 8px;
-    margin: 15px 0;
-}
-
-.disclaimer-content {
-    background: white;
-    padding: 20px;
     border-radius: 4px;
 }
 
-.validation-error {
-    color: #dc3232;
-    font-style: italic;
-    margin-top: 5px;
+.test-result {
+    margin-top: 15px;
+    padding: 10px;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    min-height: 100px;
 }
 
-/* Responsive Styles */
-@media screen and (max-width: 782px) {
-    .form-table td {
-        padding: 10px 0;
-    }
-    
-    .field-group {
-        margin-bottom: 10px;
-        padding: 10px;
-    }
-    
-    .message-preview {
-        max-width: 100%;
-    }
+/* Tema claro/oscuro */
+body.admin-color-light .stats-card,
+body.admin-color-light .chart-container,
+body.admin-color-light .settings-section,
+body.admin-color-light .field-group {
+    background-color: #fff;
+}
+
+body.admin-color-dark .stats-card,
+body.admin-color-dark .chart-container,
+body.admin-color-dark .settings-section,
+body.admin-color-dark .field-group {
+    background-color: #32373c;
+    color: #bbc8d4;
+    border-color: #191f25;
+}
+
+body.admin-color-dark .form-table th {
+    color: #bbc8d4;
+}
+
+body.admin-color-dark .field-description {
+    color: #a7aaad;
+}
+
+body.admin-color-dark .stats-card h3 {
+    color: #bbc8d4;
+}
+
+/* Animaciones */
+.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.slide-in {
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
 }
