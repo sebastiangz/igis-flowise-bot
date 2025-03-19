@@ -123,7 +123,7 @@ Para personalizaciones avanzadas, puedes usar:
 
 Para soporte técnico, por favor contacta a:
 
-- Email: [soporte@infraestructuragis.com](mailto:soporte@infraestructuragis.com)
+- Email: [sgonzalez@infraestructuragis.com](mailto:sgonzalez@infraestructuragis.com)
 - Sitio web: [www.infraestructuragis.com](https://www.infraestructuragis.com/)
 
 ## Licencia
