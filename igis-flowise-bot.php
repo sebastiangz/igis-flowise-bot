@@ -2,10 +2,10 @@
 /**
  * Plugin Name: IGIS Flowise Bot
  * Plugin URI: https://www.infraestructuragis.com/
- * Description: Integra el chatbot de Flowise en tu sitio WordPress con opciones configurables avanzadas
- * Version: 1.1.1
- * Requires at least: 6.0
- * Requires PHP: 7.4
+ * Description: Integra el chatbot de Flowise en tu sitio WordPress con optimizaciones avanzadas para WordPress 6.8+
+ * Version: 1.2.0
+ * Requires at least: 6.8
+ * Requires PHP: 8.0
  * Author: InfraestructuraGIS
  * Author URI: https://www.infraestructuragis.com/
  * License: GPL v2 or later
@@ -16,1579 +16,649 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('IGIS_BOT_VERSION', '1.1.1');
+define('IGIS_BOT_VERSION', '1.2.0');
 define('IGIS_BOT_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IGIS_BOT_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('IGIS_BOT_PLUGIN_BASENAME', plugin_basename(__FILE__));
+define('IGIS_BOT_CACHE_TIME', 12 * HOUR_IN_SECONDS);
+define('IGIS_BOT_MIN_WP_VERSION', '6.8');
+define('IGIS_BOT_MIN_PHP_VERSION', '8.0');
 
 class IGIS_Flowise_Bot {
-    private static $instance = null;
-    private $options;
+    private static $instancia = null;
+    private $opciones;
+    private $cache_manager;
+    private $optimizador_performance;
+    private $detector_tema_oscuro;
+    private $precargador_recursos;
 
-    public static function get_instance() {
-        if (null === self::$instance) {
-            self::$instance = new self();
+    public static function obtener_instancia() {
+        if (null === self::$instancia) {
+            self::$instancia = new self();
         }
-        return self::$instance;
+        return self::$instancia;
     }
 
     private function __construct() {
-        $this->options = get_option('igis_bot_options', array());
-        
-        // Crear estructura de carpetas si no existe
-        $this->create_directories();
-        
-        register_activation_hook(__FILE__, array($this, 'activate'));
-        register_deactivation_hook(__FILE__, array($this, 'deactivate'));
-        
-        add_action('admin_menu', array($this, 'add_admin_menu'));
-        add_action('admin_init', array($this, 'register_settings'));
-        add_action('wp_footer', array($this, 'render_bot'));
-        add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
-        add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
-        
-        // Registrar manejadores AJAX
-        $this->register_ajax_handlers();
+        $this->verificar_compatibilidad();
+        $this->inicializar_componentes();
+        $this->configurar_hooks();
     }
-    
-    private function create_directories() {
-        // Crear directorio de assets si no existe
-        $assets_dir = IGIS_BOT_PLUGIN_DIR . 'assets';
-        if (!file_exists($assets_dir)) {
-            mkdir($assets_dir, 0755);
-            mkdir($assets_dir . '/css', 0755);
-            mkdir($assets_dir . '/js', 0755);
-            
-            // Copiar archivos CSS y JS iniciales
-            $this->create_initial_assets();
+
+    private function verificar_compatibilidad() {
+        if (version_compare(get_bloginfo('version'), IGIS_BOT_MIN_WP_VERSION, '<')) {
+            add_action('admin_notices', array($this, 'mostrar_aviso_version_wp'));
+            return;
+        }
+
+        if (version_compare(PHP_VERSION, IGIS_BOT_MIN_PHP_VERSION, '<')) {
+            add_action('admin_notices', array($this, 'mostrar_aviso_version_php'));
+            return;
         }
     }
-    
-    private function create_initial_assets() {
-        // Crear archivo CSS de administración
-        $admin_css = file_get_contents(IGIS_BOT_PLUGIN_DIR . 'admin-css.css');
-        file_put_contents(IGIS_BOT_PLUGIN_DIR . 'assets/css/admin.css', $admin_css);
-        
-        // Crear archivo JS de administración
-        $admin_js = file_get_contents(IGIS_BOT_PLUGIN_DIR . 'admin-js.js');
-        file_put_contents(IGIS_BOT_PLUGIN_DIR . 'assets/js/admin.js', $admin_js);
-        
-        // Crear archivo CSS del frontend
-        $frontend_css = "/* IGIS Flowise Bot Frontend Styles */
-.flowise-chatbot-button {
-    transition: all 0.3s ease;
-}";
-        file_put_contents(IGIS_BOT_PLUGIN_DIR . 'assets/css/frontend.css', $frontend_css);
-        
-        // Crear archivo JS del frontend
-        $frontend_js = "jQuery(document).ready(function($) {
-    // Generador de IDs de sesión
-    function generateSessionId() {
-        return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-    }
-    
-    // Obtener ID de sesión existente o crear uno nuevo
-    const sessionId = localStorage.getItem('igis_bot_session_id') || generateSessionId();
-    localStorage.setItem('igis_bot_session_id', sessionId);
-    
-    // Registrar el inicio de la conversación cuando se abra el chatbot
-    $(document).on('click', '.flowise-chatbot-button', function() {
-        $.ajax({
-            url: igisBotFrontend.ajaxUrl,
-            method: 'POST',
-            data: {
-                action: 'igis_bot_log_conversation',
-                nonce: igisBotFrontend.nonce,
-                session_id: sessionId,
-                status: 'active'
-            }
-        });
-    });
-});";
-        file_put_contents(IGIS_BOT_PLUGIN_DIR . 'assets/js/frontend.js', $frontend_js);
-    }
 
-    public function activate() {
-        $default_options = array(
-            // Configuración General
-            'chatflow_id' => '',
-            'api_host' => '',
-            
-            // Configuración del Botón
-            'button_color' => '#3B81F6',
-            'button_position_right' => '20',
-            'button_position_bottom' => '20',
-            'button_size' => '48',
-            'enable_drag' => true,
-            'icon_color' => 'white',
-            'custom_icon' => 'https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/svg/google-messages.svg',
-            
-            // Configuración de la Ventana
-            'window_title' => 'IGIS Bot',
-            'welcome_message' => 'Hello! How can I help you today?',
-            'error_message' => 'Lo siento, ha ocurrido un error. Por favor, intenta de nuevo.',
-            'window_height' => '700',
-            'window_width' => '400',
-            'window_background_color' => '#ffffff',
-            'window_background_image' => '',
-            'font_size' => '16',
-            
-            // Configuración de Mensajes
-            'bot_message_bg_color' => '#f7f8ff',
-            'bot_message_text_color' => '#303235',
-            'bot_avatar_enabled' => true,
-            'bot_avatar_src' => '',
-            'user_message_bg_color' => '#3B81F6',
-            'user_message_text_color' => '#ffffff',
-            'user_avatar_enabled' => true,
-            'user_avatar_src' => '',
-
-            // Configuración del Input
-            'input_placeholder' => 'Type your question',
-            'input_bg_color' => '#ffffff',
-            'input_text_color' => '#303235',
-            'input_send_button_color' => '#3B81F6',
-            'max_chars' => '50',
-            'max_chars_warning' => 'You exceeded the characters limit.',
-            'auto_focus' => true,
-            
-            // Configuración de Visualización
-            'display_pages' => array('all'),
-            'auto_open' => true,
-            'auto_open_delay' => '2',
-            'auto_open_mobile' => false,
-            'show_for_logged_in' => false,
-            'show_for_roles' => array(),
-            'hide_on_mobile' => false,
-            
-            // Configuración del Tooltip
-            'show_tooltip' => true,
-            'tooltip_message' => 'Hi There 👋!',
-            'tooltip_bg_color' => 'black',
-            'tooltip_text_color' => 'white',
-            'tooltip_font_size' => '16',
-            
-            // Prompts de Inicio
-            'starter_prompts' => "What is a bot?\nWho are you?",
-            'starter_prompt_font_size' => '15',
-            
-            // Configuración de Sonido
-            'enable_send_sound' => true,
-            'enable_receive_sound' => true,
-            'send_sound_url' => '',
-            'receive_sound_url' => '',
-            
-            // Configuración del Footer
-            'footer_text_color' => '#303235',
-            'footer_text' => 'Powered by IGIS Bot',
-            'footer_company' => 'InfraestructuraGIS',
-            'footer_company_link' => 'https://www.infraestructuragis.com/',
-            
-            // Configuración del Disclaimer
-            'show_disclaimer' => false,
-            'disclaimer_title' => 'Disclaimer',
-            'disclaimer_message' => '',
-            'disclaimer_button_text' => 'Start Chatting',
-            'disclaimer_button_color' => '#3b82f6',
-            'disclaimer_text_color' => 'black',
-            'disclaimer_bg_color' => 'white',
-            'disclaimer_overlay_color' => 'rgba(0, 0, 0, 0.4)',
-            
-            // Configuración Avanzada
-            'custom_css' => '',
-            'custom_js' => '',
-            'custom_headers' => '',
-            'rate_limiting' => 60,
-            'session_timeout' => 30,
-            'debug_mode' => false,
-            'save_conversations' => false,
-            'analytics_enabled' => false,
-            'analytics_tracking_id' => '',
-            'webhook_url' => '',
-            'webhook_events' => array()
+    public function mostrar_aviso_version_wp() {
+        echo '<div class="notice notice-error"><p>';
+        printf(
+            __('IGIS Flowise Bot requiere WordPress %s o superior. Tu versión actual es %s.', 'igis-flowise-bot'),
+            IGIS_BOT_MIN_WP_VERSION,
+            get_bloginfo('version')
         );
+        echo '</p></div>';
+    }
+
+    public function mostrar_aviso_version_php() {
+        echo '<div class="notice notice-error"><p>';
+        printf(
+            __('IGIS Flowise Bot requiere PHP %s o superior. Tu versión actual es %s.', 'igis-flowise-bot'),
+            IGIS_BOT_MIN_PHP_VERSION,
+            PHP_VERSION
+        );
+        echo '</p></div>';
+    }
+
+    private function inicializar_componentes() {
+        $this->opciones = $this->obtener_opciones_optimizadas();
+        $this->cache_manager = new IGIS_Cache_Manager();
+        $this->optimizador_performance = new IGIS_Optimizador_Performance();
+        $this->detector_tema_oscuro = new IGIS_Detector_Tema_Oscuro();
+        $this->precargador_recursos = new IGIS_Precargador_Recursos();
+        
+        $this->crear_directorios();
+    }
+
+    private function configurar_hooks() {
+        register_activation_hook(__FILE__, array($this, 'activar_plugin'));
+        register_deactivation_hook(__FILE__, array($this, 'desactivar_plugin'));
+        
+        add_action('init', array($this, 'inicializar_localizacion'));
+        add_action('admin_menu', array($this, 'agregar_menu_admin'));
+        add_action('admin_init', array($this, 'registrar_configuraciones'));
+        add_action('wp_footer', array($this, 'renderizar_bot'));
+        add_action('admin_enqueue_scripts', array($this, 'encolar_assets_admin'));
+        add_action('wp_enqueue_scripts', array($this, 'encolar_assets_frontend'));
+        add_action('wp_head', array($this, 'agregar_precargas_head'));
+        add_action('wp_head', array($this, 'agregar_variables_css_personalizadas'));
+        
+        // Optimizaciones de WordPress 6.8+
+        add_action('wp_loaded', array($this, 'configurar_cache_objeto'));
+        add_filter('wp_resource_hints', array($this, 'agregar_resource_hints'), 10, 2);
+        add_action('wp_footer', array($this, 'agregar_preload_recursos'), 1);
+        
+        // Hooks para tema oscuro
+        add_action('wp_head', array($this, 'detectar_y_aplicar_tema_oscuro'));
+        add_filter('body_class', array($this, 'agregar_clases_tema_body'));
+        
+        $this->registrar_manejadores_ajax();
+    }
+
+    public function inicializar_localizacion() {
+        load_plugin_textdomain(
+            'igis-flowise-bot',
+            false,
+            dirname(IGIS_BOT_PLUGIN_BASENAME) . '/languages/'
+        );
+    }
+
+    private function crear_directorios() {
+        $directorio_assets = IGIS_BOT_PLUGIN_DIR . 'assets';
+        if (!file_exists($directorio_assets)) {
+            wp_mkdir_p($directorio_assets);
+            wp_mkdir_p($directorio_assets . '/css');
+            wp_mkdir_p($directorio_assets . '/js');
+            wp_mkdir_p($directorio_assets . '/cache');
+            
+            $this->crear_assets_iniciales();
+        }
+    }
+
+    private function crear_assets_iniciales() {
+        $this->crear_css_optimizado();
+        $this->crear_js_optimizado();
+    }
+
+    private function crear_css_optimizado() {
+        $css_admin_contenido = $this->generar_css_admin_optimizado();
+        file_put_contents(IGIS_BOT_PLUGIN_DIR . 'assets/css/admin.css', $css_admin_contenido);
+        
+        $css_frontend_contenido = $this->generar_css_frontend_optimizado();
+        file_put_contents(IGIS_BOT_PLUGIN_DIR . 'assets/css/frontend.css', $css_frontend_contenido);
+    }
+
+    private function generar_css_admin_optimizado() {
+        return "/* IGIS Flowise Bot Admin - Optimizado para WordPress 6.8+ */
+:root {
+    --igis-primary: #3B81F6;
+    --igis-primary-hover: #2563EB;
+    --igis-secondary: #64748B;
+    --igis-success: #10B981;
+    --igis-warning: #F59E0B;
+    --igis-error: #EF4444;
+    --igis-bg-light: #F8FAFC;
+    --igis-bg-dark: #1E293B;
+    --igis-text-light: #1E293B;
+    --igis-text-dark: #F8FAFC;
+    --igis-border-light: #E2E8F0;
+    --igis-border-dark: #374151;
+    --igis-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --igis-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    --igis-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+/* Optimizaciones de performance */
+.igis-bot-admin-wrap * {
+    box-sizing: border-box;
+    transform: translateZ(0);
+}
+
+.igis-bot-admin-wrap {
+    margin: 20px;
+    contain: layout style paint;
+}
+
+/* Tema claro por defecto */
+.igis-bot-admin-wrap {
+    background-color: var(--igis-bg-light);
+    color: var(--igis-text-light);
+    transition: var(--igis-transition);
+}
+
+/* Soporte para tema oscuro */
+@media (prefers-color-scheme: dark) {
+    .igis-bot-admin-wrap {
+        background-color: var(--igis-bg-dark);
+        color: var(--igis-text-dark);
+    }
+    
+    .settings-section,
+    .stats-card,
+    .chart-container {
+        background-color: var(--igis-bg-dark);
+        border-color: var(--igis-border-dark);
+        color: var(--igis-text-dark);
+    }
+}
+
+/* WordPress admin theme dark support */
+.admin-color-scheme-dark .igis-bot-admin-wrap,
+body.admin-color-dark .igis-bot-admin-wrap {
+    background-color: var(--igis-bg-dark);
+    color: var(--igis-text-dark);
+}
+
+.admin-color-scheme-dark .settings-section,
+.admin-color-scheme-dark .stats-card,
+body.admin-color-dark .settings-section,
+body.admin-color-dark .stats-card {
+    background-color: #32373C;
+    border-color: var(--igis-border-dark);
+    color: var(--igis-text-dark);
+}
+
+/* Navegación por pestañas mejorada */
+.nav-tab-wrapper {
+    margin-bottom: 20px;
+    border-bottom: 2px solid var(--igis-border-light);
+}
+
+.nav-tab {
+    position: relative;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    transition: var(--igis-transition);
+    font-weight: 500;
+}
+
+.nav-tab:hover {
+    background-color: var(--igis-bg-light);
+    color: var(--igis-primary);
+    transform: translateY(-2px);
+}
+
+.nav-tab-active {
+    background-color: var(--igis-primary);
+    color: white;
+    border-bottom-color: var(--igis-primary);
+}
+
+/* Secciones de configuración */
+.settings-section {
+    display: none;
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: var(--igis-shadow);
+    margin-bottom: 20px;
+    animation: igis-fade-in 0.3s ease-out;
+}
+
+.settings-section.active {
+    display: block;
+}
+
+@keyframes igis-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Campos de formulario mejorados */
+.form-table th {
+    padding: 20px 15px;
+    width: 220px;
+    vertical-align: top;
+    font-weight: 600;
+    color: var(--igis-text-light);
+}
+
+.form-table td {
+    padding: 15px;
+    vertical-align: middle;
+}
+
+input[type='text'],
+input[type='number'],
+input[type='email'],
+input[type='url'],
+select,
+textarea {
+    border: 2px solid var(--igis-border-light);
+    border-radius: 8px;
+    padding: 12px 16px;
+    transition: var(--igis-transition);
+    font-size: 14px;
+}
+
+input[type='text']:focus,
+input[type='number']:focus,
+input[type='email']:focus,
+input[type='url']:focus,
+select:focus,
+textarea:focus {
+    border-color: var(--igis-primary);
+    box-shadow: 0 0 0 3px rgba(59, 129, 246, 0.1);
+    outline: none;
+}
+
+/* Botones modernos */
+.button-primary,
+.button-secondary {
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-weight: 600;
+    transition: var(--igis-transition);
+    border: none;
+}
+
+.button-primary {
+    background-color: var(--igis-primary);
+    color: white;
+}
+
+.button-primary:hover {
+    background-color: var(--igis-primary-hover);
+    transform: translateY(-2px);
+    box-shadow: var(--igis-shadow-lg);
+}
+
+/* Vista previa del bot */
+.bot-preview {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(8px);
+    z-index: 99999;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    animation: igis-fade-in 0.3s ease-out;
+}
+
+.bot-preview-content {
+    background: white;
+    border-radius: 16px;
+    box-shadow: var(--igis-shadow-lg);
+    width: 90%;
+    max-width: 1200px;
+    height: 90%;
+    max-height: 800px;
+    overflow: hidden;
+    animation: igis-slide-up 0.3s ease-out;
+}
+
+@keyframes igis-slide-up {
+    from {
+        opacity: 0;
+        transform: translateY(50px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Estadísticas mejoradas */
+.stats-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 24px;
+    margin-bottom: 40px;
+}
+
+.stats-card {
+    background: linear-gradient(135deg, white 0%, var(--igis-bg-light) 100%);
+    border: 2px solid var(--igis-border-light);
+    border-radius: 16px;
+    padding: 32px;
+    text-align: center;
+    transition: var(--igis-transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.stats-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--igis-primary), var(--igis-primary-hover));
+}
+
+.stats-card:hover {
+    transform: translateY(-8px);
+    box-shadow: var(--igis-shadow-lg);
+}
+
+.stats-value {
+    font-size: 48px;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--igis-primary), var(--igis-primary-hover));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin: 20px 0;
+}
+
+/* Responsive design mejorado */
+@media screen and (max-width: 1024px) {
+    .stats-container {
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 20px;
+    }
+}
+
+@media screen and (max-width: 768px) {
+    .igis-bot-admin-wrap {
+        margin: 10px;
+    }
+    
+    .settings-section {
+        padding: 20px;
+        margin-bottom: 15px;
+    }
+    
+    .form-table th,
+    .form-table td {
+        display: block;
+        width: 100%;
+        padding: 10px 0;
+    }
+    
+    .stats-container {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    
+    .nav-tab {
+        font-size: 14px;
+        padding: 12px 16px;
+    }
+}
+
+/* Animaciones de carga */
+.loading-spinner {
+    display: inline-block;
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--igis-border-light);
+    border-radius: 50%;
+    border-top-color: var(--igis-primary);
+    animation: igis-spin 1s ease-in-out infinite;
+}
+
+@keyframes igis-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Mejoras de accesibilidad */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Focus visible mejorado */
+input:focus-visible,
+button:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid var(--igis-primary);
+    outline-offset: 2px;
+}
+
+/* Performance optimizations */
+.igis-performance-optimized {
+    will-change: transform;
+    contain: strict;
+    content-visibility: auto;
+    contain-intrinsic-size: 0 500px;
+}
+
+/* Tema oscuro específico para admin */
+[data-theme='dark'] .igis-bot-admin-wrap {
+    background-color: var(--igis-bg-dark);
+    color: var(--igis-text-dark);
+}
+
+[data-theme='dark'] .settings-section,
+[data-theme='dark'] .stats-card {
+    background-color: #1F2937;
+    border-color: var(--igis-border-dark);
+    color: var(--igis-text-dark);
+}
+
+[data-theme='dark'] input[type='text'],
+[data-theme='dark'] input[type='number'],
+[data-theme='dark'] select,
+[data-theme='dark'] textarea {
+    background-color: #374151;
+    border-color: var(--igis-border-dark);
+    color: var(--igis-text-dark);
+}";
+    }
+
+    private function generar_css_frontend_optimizado() {
+        return "/* IGIS Flowise Bot Frontend - Optimizado */
+:root {
+    --igis-bot-primary: #3B81F6;
+    --igis-bot-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flowise-chatbot-button {
+    transition: var(--igis-bot-transition);
+    will-change: transform;
+    contain: layout style paint;
+}
+
+.flowise-chatbot-button:hover {
+    transform: scale(1.05);
+}
+
+/* Optimización para tema oscuro */
+@media (prefers-color-scheme: dark) {
+    .flowise-chatbot-button {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+}
+
+/* Performance optimizations */
+.flowise-embed {
+    contain: layout style paint;
+    content-visibility: auto;
+}";
+    }
+
+    private function crear_js_optimizado() {
+        $js_admin_contenido = $this->generar_js_admin_optimizado();
+        file_put_contents(IGIS_BOT_PLUGIN_DIR . 'assets/js/admin.js', $js_admin_contenido);
+        
+        $js_frontend_contenido = $this->generar_js_frontend_optimizado();
+        file_put_contents(IGIS_BOT_PLUGIN_DIR . 'assets/js/frontend.js', $js_frontend_contenido);
+    }
+
+    public function activar_plugin() {
+        $opciones_predeterminadas = $this->obtener_opciones_predeterminadas();
         
         if (!get_option('igis_bot_options')) {
-            add_option('igis_bot_options', $default_options);
+            add_option('igis_bot_options', $opciones_predeterminadas);
         }
         
-        // Crear tablas de base de datos
-        $this->create_database_tables();
+        $this->crear_tablas_base_datos();
+        $this->configurar_cache_transients();
+        flush_rewrite_rules();
     }
-    
-    private function create_database_tables() {
+
+    public function desactivar_plugin() {
+        // Limpiar cache
+        $this->cache_manager->limpiar_todo();
+        
+        // Limpiar transients
+        delete_transient('igis_bot_configuracion_cache');
+        
+        if (get_option('igis_bot_eliminar_datos_desactivar')) {
+            delete_option('igis_bot_options');
+        }
+    }
+
+    private function crear_tablas_base_datos() {
         global $wpdb;
         
         $charset_collate = $wpdb->get_charset_collate();
         
-        // Tabla de conversaciones
-        $table_name = $wpdb->prefix . 'igis_bot_conversations';
-        $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+        $tabla_conversaciones = $wpdb->prefix . 'igis_bot_conversaciones';
+        $sql = "CREATE TABLE IF NOT EXISTS $tabla_conversaciones (
             id bigint(20) NOT NULL AUTO_INCREMENT,
-            user_id bigint(20) DEFAULT NULL,
-            session_id varchar(32) NOT NULL,
-            status varchar(20) NOT NULL DEFAULT 'active',
-            started_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            ended_at datetime DEFAULT NULL,
-            metadata text DEFAULT NULL,
-            PRIMARY KEY  (id),
-            KEY user_id (user_id),
-            KEY session_id (session_id)
+            usuario_id bigint(20) DEFAULT NULL,
+            sesion_id varchar(64) NOT NULL,
+            estado varchar(20) NOT NULL DEFAULT 'activa',
+            iniciado_en datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            finalizado_en datetime DEFAULT NULL,
+            metadatos longtext DEFAULT NULL,
+            PRIMARY KEY (id),
+            KEY usuario_id (usuario_id),
+            KEY sesion_id (sesion_id),
+            KEY estado (estado)
         ) $charset_collate;";
         
-        // Tabla de mensajes
-        $messages_table = $wpdb->prefix . 'igis_bot_messages';
-        $sql .= "CREATE TABLE IF NOT EXISTS $messages_table (
+        $tabla_mensajes = $wpdb->prefix . 'igis_bot_mensajes';
+        $sql .= "CREATE TABLE IF NOT EXISTS $tabla_mensajes (
             id bigint(20) NOT NULL AUTO_INCREMENT,
-            conversation_id bigint(20) NOT NULL,
-            message text NOT NULL,
-            type varchar(10) NOT NULL,
+            conversacion_id bigint(20) NOT NULL,
+            mensaje longtext NOT NULL,
+            tipo enum('usuario','bot') NOT NULL,
             timestamp datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            metadata text DEFAULT NULL,
-            PRIMARY KEY  (id),
-            KEY conversation_id (conversation_id),
-            FOREIGN KEY (conversation_id) REFERENCES $table_name(id) ON DELETE CASCADE
+            metadatos longtext DEFAULT NULL,
+            PRIMARY KEY (id),
+            KEY conversacion_id (conversacion_id),
+            KEY tipo (tipo),
+            KEY timestamp (timestamp),
+            FOREIGN KEY (conversacion_id) REFERENCES $tabla_conversaciones(id) ON DELETE CASCADE
         ) $charset_collate;";
         
-        // Tabla de analytics
-        $analytics_table = $wpdb->prefix . 'igis_bot_analytics';
-        $sql .= "CREATE TABLE IF NOT EXISTS $analytics_table (
+        $tabla_analytics = $wpdb->prefix . 'igis_bot_analytics';
+        $sql .= "CREATE TABLE IF NOT EXISTS $tabla_analytics (
             id bigint(20) NOT NULL AUTO_INCREMENT,
-            event_type varchar(50) NOT NULL,
-            event_data text DEFAULT NULL,
+            tipo_evento varchar(100) NOT NULL,
+            datos_evento longtext DEFAULT NULL,
             timestamp datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY  (id),
-            KEY event_type (event_type)
+            usuario_id bigint(20) DEFAULT NULL,
+            sesion_id varchar(64) DEFAULT NULL,
+            PRIMARY KEY (id),
+            KEY tipo_evento (tipo_evento),
+            KEY timestamp (timestamp),
+            KEY usuario_id (usuario_id)
         ) $charset_collate;";
         
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql);
     }
 
-    public function deactivate() {
-        // Limpieza al desactivar si es necesario
-        if (get_option('igis_bot_delete_data')) {
-            delete_option('igis_bot_options');
+    private function obtener_opciones_optimizadas() {
+        $cache_key = 'igis_bot_opciones_' . md5(IGIS_BOT_VERSION);
+        $opciones = wp_cache_get($cache_key, 'igis_bot');
+        
+        if (false === $opciones) {
+            $opciones = get_option('igis_bot_options', $this->obtener_opciones_predeterminadas());
+            wp_cache_set($cache_key, $opciones, 'igis_bot', IGIS_BOT_CACHE_TIME);
         }
+        
+        return $opciones;
     }
 
-    public function add_admin_menu() {
-        add_menu_page(
-            'IGIS Flowise Bot',
-            'IGIS Bot',
-            'manage_options',
-            'igis-flowise-bot',
-            array($this, 'render_admin_page'),
-            'dashicons-format-chat',
-            99
-        );
-
-        // Submenús
-        add_submenu_page(
-            'igis-flowise-bot',
-            'Configuración General',
-            'Configuración',
-            'manage_options',
-            'igis-flowise-bot'
-        );
-
-        add_submenu_page(
-            'igis-flowise-bot',
-            'Estadísticas',
-            'Estadísticas',
-            'manage_options',
-            'igis-flowise-bot-stats',
-            array($this, 'render_stats_page')
-        );
-
-        add_submenu_page(
-            'igis-flowise-bot',
-            'Conversaciones',
-            'Conversaciones',
-            'manage_options',
-            'igis-flowise-bot-conversations',
-            array($this, 'render_conversations_page')
-        );
-    }
-
-    public function register_settings() {
-        register_setting('igis_bot_options', 'igis_bot_options', array($this, 'sanitize_options'));
-        
-        // Secciones principales para cada pestaña
-        $sections = array(
-            'general' => 'Configuración General',
-            'appearance' => 'Apariencia',
-            'messages' => 'Mensajes',
-            'display' => 'Visualización',
-            'advanced' => 'Configuración Avanzada'
-        );
-        
-        // Registrar secciones para cada pestaña
-        foreach ($sections as $id => $title) {
-            add_settings_section(
-                'igis_bot_' . $id,
-                $title,
-                null,
-                'igis-flowise-bot'
-            );
-        }
-        
-        $this->add_settings_fields();
-    }
-
-    private function add_settings_fields() {
-        // Arrays de configuración de campos
-        $general_fields = array(
-            'chatflow_id' => array('text', 'Chatflow ID'),
-            'api_host' => array('text', 'API Host')
-        );
-
-        $appearance_fields = array(
-            'button_color' => array('color', 'Color del Botón'),
-            'button_position_right' => array('number', 'Posición Derecha'),
-            'button_position_bottom' => array('number', 'Posición Inferior'),
-            'button_size' => array('number', 'Tamaño del Botón'),
-            'enable_drag' => array('checkbox', 'Permitir Arrastrar'),
-            'icon_color' => array('color', 'Color del Icono'),
-            'custom_icon' => array('media', 'Icono Personalizado')
-        );
-
-        $message_fields = array(
-            'bot_message_bg_color' => array('color', 'Color de Fondo Bot'),
-            'bot_message_text_color' => array('color', 'Color de Texto Bot'),
-            'bot_avatar_enabled' => array('checkbox', 'Mostrar Avatar Bot'),
-            'bot_avatar_src' => array('media', 'Avatar del Bot'),
-            'user_message_bg_color' => array('color', 'Color de Fondo Usuario'),
-            'user_message_text_color' => array('color', 'Color de Texto Usuario'),
-            'user_avatar_enabled' => array('checkbox', 'Mostrar Avatar Usuario'),
-            'user_avatar_src' => array('media', 'Avatar del Usuario')
-        );
-
-        $display_fields = array(
-            'display_pages' => array('multiselect', 'Mostrar en Páginas', $this->get_available_pages()),
-            'auto_open' => array('checkbox', 'Auto Abrir'),
-            'auto_open_delay' => array('number', 'Retraso de Auto Apertura'),
-            'auto_open_mobile' => array('checkbox', 'Auto Abrir en Móvil'),
-            'show_for_logged_in' => array('checkbox', 'Solo Usuarios Registrados'),
-            'show_for_roles' => array('multiselect', 'Roles de Usuario', $this->get_user_roles()),
-            'hide_on_mobile' => array('checkbox', 'Ocultar en Móvil')
-        );
-
-        $advanced_fields = array(
-            'custom_css' => array('code', 'CSS Personalizado'),
-            'custom_js' => array('code', 'JavaScript Personalizado'),
-            'rate_limiting' => array('number', 'Límite de Peticiones'),
-            'session_timeout' => array('number', 'Tiempo de Sesión'),
-            'debug_mode' => array('checkbox', 'Modo Debug'),
-            'save_conversations' => array('checkbox', 'Guardar Conversaciones'),
-            'analytics_enabled' => array('checkbox', 'Activar Analytics'),
-            'analytics_tracking_id' => array('text', 'ID de Analytics'),
-            'webhook_url' => array('text', 'URL del Webhook'),
-            'webhook_events' => array('multiselect', 'Eventos del Webhook', array(
-                'conversation_start' => 'Inicio de Conversación',
-                'conversation_end' => 'Fin de Conversación',
-                'message_sent' => 'Mensaje Enviado',
-                'message_received' => 'Mensaje Recibido'
-            ))
-        );
-
-        // Registrar todos los campos
-        $all_fields = array(
-            'general' => $general_fields,
-            'appearance' => $appearance_fields,
-            'messages' => $message_fields,
-            'display' => $display_fields,
-            'advanced' => $advanced_fields
-        );
-
-        foreach ($all_fields as $section => $fields) {
-            foreach ($fields as $field => $config) {
-                add_settings_field(
-                    $field,
-                    $config[1],
-                    array($this, 'render_field'),
-                    'igis-flowise-bot',
-                    'igis_bot_' . $section,
-                    array(
-                        'field' => $field,
-                        'type' => $config[0],
-                        'options' => isset($config[2]) ? $config[2] : null
-                    )
-                );
-            }
-        }
-    }
-
-    public function render_field($args) {
-        $field = $args['field'];
-        $type = $args['type'];
-        $options = isset($args['options']) ? $args['options'] : null;
-        $value = isset($this->options[$field]) ? $this->options[$field] : '';
-        
-        switch ($type) {
-            case 'text':
-                echo '<input type="text" class="regular-text" name="igis_bot_options[' . esc_attr($field) . ']" value="' . esc_attr($value) . '">';
-                break;
-
-            case 'number':
-                echo '<input type="number" class="small-text" name="igis_bot_options[' . esc_attr($field) . ']" value="' . esc_attr($value) . '">';
-                break;
-
-            case 'color':
-                echo '<input type="text" class="color-picker" name="igis_bot_options[' . esc_attr($field) . ']" value="' . esc_attr($value) . '">';
-                break;
-
-            case 'checkbox':
-                echo '<input type="checkbox" name="igis_bot_options[' . esc_attr($field) . ']" ' . checked($value, true, false) . ' value="1">';
-                break;
-
-            case 'media':
-                echo '<div class="media-field">';
-                echo '<input type="text" class="regular-text media-input" name="igis_bot_options[' . esc_attr($field) . ']" value="' . esc_attr($value) . '">';
-                echo '<button class="button upload-media-button" data-target="' . esc_attr($field) . '">Seleccionar Archivo</button>';
-                if (!empty($value)) {
-                    echo '<div class="media-preview">';
-                    if (wp_attachment_is_image($value)) {
-                        echo wp_get_attachment_image($value, 'thumbnail');
-                    } else {
-                        echo '<img src="' . esc_url($value) . '" alt="Preview" style="max-width:100px; max-height:100px;">';
-                    }
-                    echo '</div>';
-                }
-                echo '</div>';
-                break;
-
-            case 'multiselect':
-                if ($options) {
-                    echo '<select multiple class="regular-text" name="igis_bot_options[' . esc_attr($field) . '][]">';
-                    foreach ($options as $option_value => $option_label) {
-                        $selected = is_array($value) && in_array($option_value, $value) ? 'selected' : '';
-                        echo '<option value="' . esc_attr($option_value) . '" ' . $selected . '>' . esc_html($option_label) . '</option>';
-                    }
-                    echo '</select>';
-                }
-                break;
-
-            case 'code':
-                echo '<textarea class="large-text code" rows="10" name="igis_bot_options[' . esc_attr($field) . ']">' . esc_textarea($value) . '</textarea>';
-                break;
-
-            case 'textarea':
-                echo '<textarea class="large-text" rows="5" name="igis_bot_options[' . esc_attr($field) . ']">' . esc_textarea($value) . '</textarea>';
-                break;
-        }
-    }
-
-    public function render_admin_page() {
-        if (!current_user_can('manage_options')) {
-            return;
-        }
-        ?>
-        <div class="wrap igis-bot-admin-wrap">
-            <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
-            
-            <div class="notice notice-info">
-                <p>
-                    <?php _e('Configure su bot IGIS Flowise aquí. Asegúrese de tener un ID de Chatflow válido y una URL de API configurada.', 'igis-flowise-bot'); ?>
-                </p>
-            </div>
-
-            <form action="options.php" method="post" id="igis-bot-settings-form">
-                <nav class="nav-tab-wrapper">
-                    <a href="#general" class="nav-tab nav-tab-active"><?php _e('General', 'igis-flowise-bot'); ?></a>
-                    <a href="#appearance" class="nav-tab"><?php _e('Apariencia', 'igis-flowise-bot'); ?></a>
-                    <a href="#messages" class="nav-tab"><?php _e('Mensajes', 'igis-flowise-bot'); ?></a>
-                    <a href="#display" class="nav-tab"><?php _e('Visualización', 'igis-flowise-bot'); ?></a>
-                    <a href="#advanced" class="nav-tab"><?php _e('Avanzado', 'igis-flowise-bot'); ?></a>
-                </nav>
-
-                <div class="tab-content">
-                    <!-- Secciones de configuración -->
-                    <div id="section-general" class="settings-section active">
-                        <?php 
-                        settings_fields('igis_bot_options');
-                        do_settings_sections('igis-flowise-bot'); 
-                        ?>
-                    </div>
-
-                    <div class="submit-container">
-                        <?php submit_button('Guardar Cambios'); ?>
-                        <button type="button" class="button button-secondary preview-bot">
-                            <?php _e('Vista Previa del Bot', 'igis-flowise-bot'); ?>
-                        </button>
-                    </div>
-                </div>
-            </form>
-
-            <div id="bot-preview" class="bot-preview" style="display: none;">
-                <div class="bot-preview-header">
-                    <h3><?php _e('Vista Previa del Bot', 'igis-flowise-bot'); ?></h3>
-                    <button class="close-preview">&times;</button>
-                </div>
-                <div class="bot-preview-content">
-                    <!-- La vista previa del bot se cargará aquí -->
-                </div>
-            </div>
-        </div>
-        <?php
-    }
-
-    public function render_stats_page() {
-        if (!current_user_can('manage_options')) {
-            return;
-        }
-        ?>
-        <div class="wrap igis-bot-stats-wrap">
-            <h1><?php _e('Estadísticas del Bot', 'igis-flowise-bot'); ?></h1>
-            
-            <div class="stats-container">
-                <div class="stats-card">
-                    <h3><?php _e('Conversaciones Totales', 'igis-flowise-bot'); ?></h3>
-                    <div class="stats-value"><?php echo $this->get_total_conversations(); ?></div>
-                </div>
-                
-                <div class="stats-card">
-                    <h3><?php _e('Mensajes Enviados', 'igis-flowise-bot'); ?></h3>
-                    <div class="stats-value"><?php echo $this->get_total_messages(); ?></div>
-                </div>
-                
-                <div class="stats-card">
-                    <h3><?php _e('Tasa de Respuesta', 'igis-flowise-bot'); ?></h3>
-                    <div class="stats-value"><?php echo $this->get_response_rate(); ?>%</div>
-                </div>
-            </div>
-
-            <div class="stats-charts">
-                <div class="chart-container">
-                    <canvas id="conversationsChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <canvas id="messagesChart"></canvas>
-                </div>
-            </div>
-        </div>
-        <?php
-    }
-
-    public function render_conversations_page() {
-        if (!current_user_can('manage_options')) {
-            return;
-        }
-        ?>
-        <div class="wrap igis-bot-conversations-wrap">
-            <h1><?php _e('Historial de Conversaciones', 'igis-flowise-bot'); ?></h1>
-            
-            <div class="tablenav top">
-                <div class="alignleft actions">
-                    <select name="filter_date">
-                        <option value="today"><?php _e('Hoy', 'igis-flowise-bot'); ?></option>
-                        <option value="yesterday"><?php _e('Ayer', 'igis-flowise-bot'); ?></option>
-                        <option value="last_week"><?php _e('Última Semana', 'igis-flowise-bot'); ?></option>
-                        <option value="last_month"><?php _e('Último Mes', 'igis-flowise-bot'); ?></option>
-                    </select>
-                    <button class="button" id="filter-conversations">Filtrar</button>
-                </div>
-                <div class="tablenav-pages">
-                    <!-- Paginación -->
-                </div>
-            </div>
-
-            <table class="wp-list-table widefat fixed striped">
-                <thead>
-                    <tr>
-                        <th scope="col"><?php _e('ID', 'igis-flowise-bot'); ?></th>
-                        <th scope="col"><?php _e('Fecha', 'igis-flowise-bot'); ?></th>
-                        <th scope="col"><?php _e('Usuario', 'igis-flowise-bot'); ?></th>
-                        <th scope="col"><?php _e('Mensajes', 'igis-flowise-bot'); ?></th>
-                        <th scope="col"><?php _e('Estado', 'igis-flowise-bot'); ?></th>
-                        <th scope="col"><?php _e('Acciones', 'igis-flowise-bot'); ?></th>
-                    </tr>
-                </thead>
-                <tbody id="conversations-list">
-                    <!-- Los datos se cargarán vía AJAX -->
-                </tbody>
-            </table>
-        </div>
-        <?php
-    }
-
-    public function register_ajax_handlers() {
-        // Handlers para el frontend
-        add_action('wp_ajax_igis_bot_log_conversation', array($this, 'log_conversation'));
-        add_action('wp_ajax_nopriv_igis_bot_log_conversation', array($this, 'log_conversation'));
-        
-        add_action('wp_ajax_igis_bot_log_message', array($this, 'log_message'));
-        add_action('wp_ajax_nopriv_igis_bot_log_message', array($this, 'log_message'));
-        
-        // Handlers para el admin
-        add_action('wp_ajax_igis_bot_get_conversations', array($this, 'get_conversations'));
-        add_action('wp_ajax_igis_bot_get_conversation_details', array($this, 'get_conversation_details'));
-        add_action('wp_ajax_igis_bot_delete_conversation', array($this, 'delete_conversation'));
-        add_action('wp_ajax_igis_bot_get_stats', array($this, 'get_stats'));
-    }
-    
-    public function log_conversation() {
-        if (!check_ajax_referer('igis_bot_frontend', 'nonce', false)) {
-            wp_send_json_error('Invalid nonce');
-        }
-        
-        if (!isset($this->options['save_conversations']) || !$this->options['save_conversations']) {
-            wp_send_json_success('Logging disabled');
-            return;
-        }
-        
-        $session_id = isset($_POST['session_id']) ? sanitize_text_field($_POST['session_id']) : '';
-        $status = isset($_POST['status']) ? sanitize_text_field($_POST['status']) : 'active';
-        
-        global $wpdb;
-        $table = $wpdb->prefix . 'igis_bot_conversations';
-        
-        // Comprobar si ya existe una conversación con este session_id
-        $existing = $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM $table WHERE session_id = %s",
-            $session_id
-        ));
-        
-        if ($existing) {
-            // Actualizar conversación existente
-            $wpdb->update(
-                $table,
-                array('status' => $status, 'ended_at' => current_time('mysql')),
-                array('session_id' => $session_id)
-            );
-            $conversation_id = $existing;
-        } else {
-            // Crear nueva conversación
-            $wpdb->insert(
-                $table,
-                array(
-                    'user_id' => get_current_user_id(),
-                    'session_id' => $session_id,
-                    'status' => $status,
-                    'started_at' => current_time('mysql')
-                )
-            );
-            $conversation_id = $wpdb->insert_id;
-        }
-        
-        // Registrar evento de analytics si está habilitado
-        if (isset($this->options['analytics_enabled']) && $this->options['analytics_enabled']) {
-            $this->log_analytics_event('conversation_' . ($existing ? 'continued' : 'started'), array(
-                'conversation_id' => $conversation_id,
-                'session_id' => $session_id
-            ));
-        }
-        
-        wp_send_json_success(array('conversation_id' => $conversation_id));
-    }
-    
-    public function log_message() {
-        if (!check_ajax_referer('igis_bot_frontend', 'nonce', false)) {
-            wp_send_json_error('Invalid nonce');
-        }
-        
-        if (!isset($this->options['save_conversations']) || !$this->options['save_conversations']) {
-            wp_send_json_success('Logging disabled');
-            return;
-        }
-        
-        $conversation_id = isset($_POST['conversation_id']) ? intval($_POST['conversation_id']) : 0;
-        $message = isset($_POST['message']) ? sanitize_textarea_field($_POST['message']) : '';
-        $type = isset($_POST['type']) ? sanitize_text_field($_POST['type']) : 'user';
-        
-        if (empty($conversation_id) || empty($message)) {
-            wp_send_json_error('Missing required fields');
-            return;
-        }
-        
-        global $wpdb;
-        $table = $wpdb->prefix . 'igis_bot_messages';
-        
-        $wpdb->insert(
-            $table,
-            array(
-                'conversation_id' => $conversation_id,
-                'message' => $message,
-                'type' => $type,
-                'timestamp' => current_time('mysql')
-            )
-        );
-        
-        // Registrar evento de analytics si está habilitado
-        if (isset($this->options['analytics_enabled']) && $this->options['analytics_enabled']) {
-            $this->log_analytics_event('message_' . $type, array(
-                'conversation_id' => $conversation_id,
-                'message_length' => strlen($message)
-            ));
-        }
-        
-        wp_send_json_success(array('message_id' => $wpdb->insert_id));
-    }
-    
-    public function get_conversations() {
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
-        }
-        
-        if (!check_ajax_referer('igis_bot_admin', 'nonce', false)) {
-            wp_send_json_error('Invalid nonce');
-        }
-        
-        global $wpdb;
-        $table = $wpdb->prefix . 'igis_bot_conversations';
-        $messages_table = $wpdb->prefix . 'igis_bot_messages';
-        
-        // Filtrado por fecha
-        $date_filter = isset($_POST['date_filter']) ? sanitize_text_field($_POST['date_filter']) : 'all';
-        $where = '';
-        
-        switch ($date_filter) {
-            case 'today':
-                $where = "WHERE DATE(started_at) = CURDATE()";
-                break;
-            case 'yesterday':
-                $where = "WHERE DATE(started_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)";
-                break;
-            case 'last_week':
-                $where = "WHERE started_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
-                break;
-            case 'last_month':
-                $where = "WHERE started_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
-                break;
-        }
-        
-        // Paginación
-        $page = isset($_POST['page']) ? intval($_POST['page']) : 1;
-        $per_page = 20;
-        $offset = ($page - 1) * $per_page;
-        
-        // Obtener conversaciones
-        $conversations = $wpdb->get_results(
-            "SELECT c.*, 
-            COUNT(m.id) as message_count,
-            (SELECT user_login FROM {$wpdb->users} WHERE ID = c.user_id) as username
-            FROM $table c
-            LEFT JOIN $messages_table m ON c.id = m.conversation_id
-            $where
-            GROUP BY c.id
-            ORDER BY c.started_at DESC
-            LIMIT $offset, $per_page"
-        );
-        
-        // Obtener total de conversaciones para paginación
-        $total = $wpdb->get_var("SELECT COUNT(*) FROM $table $where");
-        
-        wp_send_json_success(array(
-            'conversations' => $conversations,
-            'total' => $total,
-            'pages' => ceil($total / $per_page)
-        ));
-    }
-    
-    public function get_conversation_details() {
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
-        }
-        
-        if (!check_ajax_referer('igis_bot_admin', 'nonce', false)) {
-            wp_send_json_error('Invalid nonce');
-        }
-        
-        $conversation_id = isset($_POST['conversation_id']) ? intval($_POST['conversation_id']) : 0;
-        
-        if (empty($conversation_id)) {
-            wp_send_json_error('Invalid conversation ID');
-        }
-        
-        global $wpdb;
-        $conversations_table = $wpdb->prefix . 'igis_bot_conversations';
-        $messages_table = $wpdb->prefix . 'igis_bot_messages';
-        
-        // Obtener detalles de la conversación
-        $conversation = $wpdb->get_row($wpdb->prepare(
-            "SELECT c.*, 
-            (SELECT user_login FROM {$wpdb->users} WHERE ID = c.user_id) as username
-            FROM $conversations_table c
-            WHERE c.id = %d",
-            $conversation_id
-        ));
-        
-        if (!$conversation) {
-            wp_send_json_error('Conversation not found');
-        }
-        
-        // Obtener mensajes
-        $messages = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM $messages_table 
-            WHERE conversation_id = %d 
-            ORDER BY timestamp ASC",
-            $conversation_id
-        ));
-        
-        wp_send_json_success(array(
-            'conversation' => $conversation,
-            'messages' => $messages
-        ));
-    }
-    
-    public function delete_conversation() {
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
-        }
-        
-        if (!check_ajax_referer('igis_bot_admin', 'nonce', false)) {
-            wp_send_json_error('Invalid nonce');
-        }
-        
-        $conversation_id = isset($_POST['conversation_id']) ? intval($_POST['conversation_id']) : 0;
-        
-        if (empty($conversation_id)) {
-            wp_send_json_error('Invalid conversation ID');
-        }
-        
-        global $wpdb;
-        $table = $wpdb->prefix . 'igis_bot_conversations';
-        
-        // Eliminar la conversación (los mensajes se eliminarán en cascada)
-        $deleted = $wpdb->delete($table, array('id' => $conversation_id));
-        
-        if ($deleted) {
-            wp_send_json_success('Conversation deleted');
-        } else {
-            wp_send_json_error('Failed to delete conversation');
-        }
-    }
-    
-    public function get_stats() {
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
-        }
-        
-        if (!check_ajax_referer('igis_bot_admin', 'nonce', false)) {
-            wp_send_json_error('Invalid nonce');
-        }
-        
-        $stats = array(
-            'total_conversations' => $this->get_total_conversations(),
-            'total_messages' => $this->get_total_messages(),
-            'response_rate' => $this->get_response_rate(),
-            'conversations_chart' => $this->get_conversations_chart_data(),
-            'messages_chart' => $this->get_messages_chart_data()
-        );
-        
-        wp_send_json_success($stats);
-    }
-    
-    private function log_analytics_event($event_type, $data = array()) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'igis_bot_analytics';
-        
-        $wpdb->insert(
-            $table,
-            array(
-                'event_type' => $event_type,
-                'event_data' => json_encode($data),
-                'timestamp' => current_time('mysql')
-            )
-        );
-        
-        // Enviar a webhook si está configurado
-        $this->send_webhook_event($event_type, $data);
-    }
-    
-    private function send_webhook_event($event_type, $data) {
-        if (empty($this->options['webhook_url']) || empty($this->options['webhook_events'])) {
-            return false;
-        }
-        
-        // Verificar si este tipo de evento está habilitado para webhooks
-        if (!in_array($event_type, $this->options['webhook_events'])) {
-            return false;
-        }
-        
-        $payload = array(
-            'event' => $event_type,
-            'timestamp' => current_time('mysql'),
-            'data' => $data
-        );
-        
-        $response = wp_remote_post($this->options['webhook_url'], array(
-            'method' => 'POST',
-            'timeout' => 45,
-            'redirection' => 5,
-            'httpversion' => '1.0',
-            'blocking' => false,
-            'headers' => array('Content-Type' => 'application/json'),
-            'body' => json_encode($payload)
-        ));
-        
-        return true;
-    }
-    
-    private function get_conversations_chart_data() {
-        global $wpdb;
-        $table = $wpdb->prefix . 'igis_bot_conversations';
-        
-        // Datos de los últimos 30 días
-        $data = array();
-        for ($i = 29; $i >= 0; $i--) {
-            $date = date('Y-m-d', strtotime("-$i days"));
-            $count = $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM $table WHERE DATE(started_at) = %s",
-                $date
-            ));
-            
-            $data[] = array(
-                'date' => $date,
-                'count' => (int)$count
-            );
-        }
-        
-        return $data;
-    }
-    
-    private function get_messages_chart_data() {
-        global $wpdb;
-        $table = $wpdb->prefix . 'igis_bot_messages';
-        
-        // Datos de los últimos 30 días
-        $data = array();
-        for ($i = 29; $i >= 0; $i--) {
-            $date = date('Y-m-d', strtotime("-$i days"));
-            
-            // Contar mensajes de usuario y bot por separado
-            $user_count = $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM $table WHERE DATE(timestamp) = %s AND type = 'user'",
-                $date
-            ));
-            
-            $bot_count = $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM $table WHERE DATE(timestamp) = %s AND type = 'bot'",
-                $date
-            ));
-            
-            $data[] = array(
-                'date' => $date,
-                'user' => (int)$user_count,
-                'bot' => (int)$bot_count
-            );
-        }
-        
-        return $data;
-    }
-
-    public function render_bot() {
-        if (!$this->should_display_bot()) {
-            return;
-        }
-        
-        $options = $this->get_sanitized_options();
-        
-        // Verificar campos requeridos antes de renderizar
-        if (empty($options['chatflow_id']) || empty($options['api_host'])) {
-            if ($options['debug_mode'] && current_user_can('manage_options')) {
-                echo '<!-- IGIS Bot: Configuración incompleta. Asegúrese de configurar chatflow_id y api_host -->';
-            }
-            return;
-        }
-        
-        // Preparar los datos de starter prompts correctamente
-        $starter_prompts = array();
-        if (!empty($options['starter_prompts'])) {
-            $starter_prompts = array_map('trim', explode("\n", $options['starter_prompts']));
-        }
-        
-        // JavaScript para registrar conversaciones y mensajes si está habilitado
-        $tracking_script = '';
-        if ($options['save_conversations']) {
-            $tracking_script = "
-            <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                // Generar o recuperar ID de sesión
-                let sessionId = localStorage.getItem('igis_bot_session_id');
-                if (!sessionId) {
-                    sessionId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-                    localStorage.setItem('igis_bot_session_id', sessionId);
-                }
-                
-                let conversationId = null;
-                
-                // Registrar inicio de conversación cuando se abra el chatbot
-                document.addEventListener('flowise:chatOpen', function() {
-                    fetch('" . admin_url('admin-ajax.php') . "', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: new URLSearchParams({
-                            'action': 'igis_bot_log_conversation',
-                            'nonce': '" . wp_create_nonce('igis_bot_frontend') . "',
-                            'session_id': sessionId,
-                            'status': 'active'
-                        })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            conversationId = data.data.conversation_id;
-                        }
-                    });
-                });
-                
-                // Registrar mensajes enviados por el usuario
-                document.addEventListener('flowise:messageSubmitted', function(e) {
-                    if (!conversationId) return;
-                    
-                    fetch('" . admin_url('admin-ajax.php') . "', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: new URLSearchParams({
-                            'action': 'igis_bot_log_message',
-                            'nonce': '" . wp_create_nonce('igis_bot_frontend') . "',
-                            'conversation_id': conversationId,
-                            'message': e.detail.message,
-                            'type': 'user'
-                        })
-                    });
-                });
-                
-                // Registrar respuestas del bot
-                document.addEventListener('flowise:messageReceived', function(e) {
-                    if (!conversationId) return;
-                    
-                    fetch('" . admin_url('admin-ajax.php') . "', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: new URLSearchParams({
-                            'action': 'igis_bot_log_message',
-                            'nonce': '" . wp_create_nonce('igis_bot_frontend') . "',
-                            'conversation_id': conversationId,
-                            'message': e.detail.message,
-                            'type': 'bot'
-                        })
-                    });
-                });
-                
-                // Actualizar estado al cerrar la conversación
-                document.addEventListener('flowise:chatClose', function() {
-                    if (!conversationId) return;
-                    
-                    fetch('" . admin_url('admin-ajax.php') . "', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: new URLSearchParams({
-                            'action': 'igis_bot_log_conversation',
-                            'nonce': '" . wp_create_nonce('igis_bot_frontend') . "',
-                            'session_id': sessionId,
-                            'status': 'completed'
-                        })
-                    });
-                });
-            });
-            </script>
-            ";
-        }
-        
-        // Configuración del bot
-        $bot_config = array(
-            'chatflowid' => $options['chatflow_id'],
-            'apiHost' => $options['api_host'],
-            'theme' => array(
-                'button' => array(
-                    'backgroundColor' => $options['button_color'],
-                    'right' => intval($options['button_position_right']),
-                    'bottom' => intval($options['button_position_bottom']),
-                    'size' => intval($options['button_size']),
-                    'iconColor' => $options['icon_color'],
-                    'customIconSrc' => $options['custom_icon'],
-                    'dragable' => $options['enable_drag']
-                ),
-                'chatWindow' => array(
-                    'welcomeMessage' => $options['welcome_message'],
-                    'backgroundColor' => $options['window_background_color'],
-                    'height' => intval($options['window_height']),
-                    'width' => intval($options['window_width']),
-                    'fontSize' => intval($options['font_size']),
-                    'title' => $options['window_title'],
-                    'errorMessage' => $options['error_message']
-                ),
-                'userMessage' => array(
-                    'backgroundColor' => $options['user_message_bg_color'],
-                    'textColor' => $options['user_message_text_color'],
-                    'showAvatar' => $options['user_avatar_enabled'],
-                    'avatarSrc' => $options['user_avatar_src']
-                ),
-                'botMessage' => array(
-                    'backgroundColor' => $options['bot_message_bg_color'],
-                    'textColor' => $options['bot_message_text_color'],
-                    'showAvatar' => $options['bot_avatar_enabled'],
-                    'avatarSrc' => $options['bot_avatar_src']
-                ),
-                'textInput' => array(
-                    'placeholder' => $options['input_placeholder'],
-                    'backgroundColor' => $options['input_bg_color'],
-                    'textColor' => $options['input_text_color'],
-                    'sendButtonColor' => $options['input_send_button_color'],
-                    'maxInputChars' => intval($options['max_chars'])
-                ),
-                'tooltip' => array(
-                    'showTooltip' => $options['show_tooltip'],
-                    'tooltipMessage' => $options['tooltip_message'],
-                    'backgroundColor' => $options['tooltip_bg_color'],
-                    'textColor' => $options['tooltip_text_color'],
-                    'fontSize' => intval($options['tooltip_font_size'])
-                )
-            )
-        );
-        
-        // Añadir autoWindowOpen si está habilitado
-        if ($options['auto_open']) {
-            $bot_config['theme']['button']['autoWindowOpen'] = array(
-                'autoOpen' => true,
-                'openDelay' => intval($options['auto_open_delay']),
-                'autoOpenOnMobile' => $options['auto_open_mobile']
-            );
-        }
-        
-        // Añadir starter prompts si hay alguno
-        if (!empty($starter_prompts)) {
-            $bot_config['theme']['chatWindow']['starterPrompts'] = $starter_prompts;
-        }
-        
-        // Añadir footer si hay texto de footer
-        if (!empty($options['footer_text'])) {
-            $bot_config['theme']['chatWindow']['footer'] = array(
-                'textColor' => $options['footer_text_color'],
-                'text' => $options['footer_text']
-            );
-            
-            if (!empty($options['footer_company'])) {
-                $bot_config['theme']['chatWindow']['footer']['company'] = $options['footer_company'];
-                $bot_config['theme']['chatWindow']['footer']['companyLink'] = $options['footer_company_link'];
-            }
-        }
-        
-        // Añadir disclaimer si está habilitado
-        if ($options['show_disclaimer']) {
-            $bot_config['theme']['chatWindow']['disclaimer'] = array(
-                'show' => true,
-                'title' => $options['disclaimer_title'],
-                'message' => $options['disclaimer_message'],
-                'buttonText' => $options['disclaimer_button_text'],
-                'buttonColor' => $options['disclaimer_button_color'],
-                'textColor' => $options['disclaimer_text_color'],
-                'backgroundColor' => $options['disclaimer_bg_color'],
-                'blurredBackgroundColor' => $options['disclaimer_overlay_color']
-            );
-        }
-        
-        // Configuración de sonidos
-        if ($options['enable_send_sound']) {
-            $bot_config['theme']['textInput']['sendMessageSound'] = true;
-            if (!empty($options['send_sound_url'])) {
-                $bot_config['theme']['textInput']['sendSoundLocation'] = $options['send_sound_url'];
-            }
-        }
-        
-        if ($options['enable_receive_sound']) {
-            $bot_config['theme']['textInput']['receiveMessageSound'] = true;
-            if (!empty($options['receive_sound_url'])) {
-                $bot_config['theme']['textInput']['receiveSoundLocation'] = $options['receive_sound_url'];
-            }
-        }
-        
-        // Headers personalizados si existen
-        if (!empty($options['custom_headers'])) {
-            $headers = json_decode($options['custom_headers'], true);
-            if (is_array($headers)) {
-                $bot_config['headers'] = $headers;
-            }
-        }
-        
-        ?>
-        <script type="module">
-            import Chatbot from "https://cdn.jsdelivr.net/npm/flowise-embed/dist/web.js"
-            Chatbot.init(<?php echo json_encode($bot_config); ?>);
-            
-            <?php if ($options['debug_mode']): ?>
-            console.log('IGIS Bot Debug Mode:', {
-                version: '<?php echo IGIS_BOT_VERSION; ?>',
-                options: <?php echo json_encode($options); ?>
-            });
-            <?php endif; ?>
-        </script>
-        
-        <?php echo $tracking_script; ?>
-
-        <?php if (!empty($options['custom_css'])): ?>
-        <style type="text/css">
-            <?php echo wp_strip_all_tags($options['custom_css']); ?>
-        </style>
-        <?php endif; ?>
-
-        <?php if (!empty($options['custom_js'])): ?>
-        <script type="text/javascript">
-            <?php echo $options['custom_js']; ?>
-        </script>
-        <?php endif; ?>
-        <?php
-    }
-
-    private function should_display_bot() {
-        $options = $this->options;
-        
-        // Verificar si estamos en modo móvil y está deshabilitado para móviles
-        if (isset($options['hide_on_mobile']) && $options['hide_on_mobile'] && wp_is_mobile()) {
-            return false;
-        }
-
-        // Verificar restricciones de usuario
-        if (isset($options['show_for_logged_in']) && $options['show_for_logged_in'] && !is_user_logged_in()) {
-            return false;
-        }
-
-        // Verificar roles de usuario
-        if (!empty($options['show_for_roles']) && is_user_logged_in()) {
-            $user = wp_get_current_user();
-            $intersect = array_intersect($options['show_for_roles'], (array)$user->roles);
-            if (empty($intersect)) {
-                return false;
-            }
-        }
-
-        // Verificar páginas de visualización
-        $display_pages = isset($options['display_pages']) ? $options['display_pages'] : array('all');
-        
-        if (in_array('all', $display_pages)) {
-            return true;
-        }
-
-        if (is_page() && in_array(get_the_ID(), $display_pages)) {
-            return true;
-        }
-
-        if (is_single() && in_array('posts', $display_pages)) {
-            return true;
-        }
-
-        if (is_archive() && in_array('archives', $display_pages)) {
-            return true;
-        }
-
-        if (is_home() && in_array('blog', $display_pages)) {
-            return true;
-        }
-
-        if (is_front_page() && in_array('front_page', $display_pages)) {
-            return true;
-        }
-
-        return false;
-    }
-
-    private function get_available_pages() {
-        $pages = get_pages();
-        $options = array(
-            'all' => __('Todas las páginas', 'igis-flowise-bot'),
-            'front_page' => __('Página de inicio', 'igis-flowise-bot'),
-            'blog' => __('Página del blog', 'igis-flowise-bot'),
-            'posts' => __('Entradas individuales', 'igis-flowise-bot'),
-            'archives' => __('Páginas de archivo', 'igis-flowise-bot')
-        );
-
-        foreach ($pages as $page) {
-            $options[$page->ID] = $page->post_title;
-        }
-
-        return $options;
-    }
-
-    private function get_user_roles() {
-        if (!function_exists('get_editable_roles')) {
-            require_once(ABSPATH . 'wp-admin/includes/user.php');
-        }
-        
-        $roles = get_editable_roles();
-        $role_options = array();
-        
-        foreach ($roles as $role_id => $role_data) {
-            $role_options[$role_id] = $role_data['name'];
-        }
-        
-        return $role_options;
-    }
-
-    private function get_total_conversations() {
-        global $wpdb;
-        $table_name = $wpdb->prefix . 'igis_bot_conversations';
-        
-        // Verificar si la tabla existe
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
-            return 0;
-        }
-        
-        return $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}");
-    }
-
-    private function get_total_messages() {
-        global $wpdb;
-        $table_name = $wpdb->prefix . 'igis_bot_messages';
-        
-        // Verificar si la tabla existe
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
-            return 0;
-        }
-        
-        return $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}");
-    }
-
-    private function get_response_rate() {
-        global $wpdb;
-        $table_name = $wpdb->prefix . 'igis_bot_conversations';
-        
-        // Verificar si la tabla existe
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
-            return 0;
-        }
-        
-        $total = $this->get_total_conversations();
-        if ($total === 0) return 0;
-        
-        $responded = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE status = 'completed'");
-        return round(($responded / $total) * 100, 2);
-    }
-
-    public function enqueue_admin_assets($hook) {
-        if ('toplevel_page_igis-flowise-bot' !== $hook && 
-            'igis-bot_page_igis-flowise-bot-stats' !== $hook &&
-            'igis-bot_page_igis-flowise-bot-conversations' !== $hook) {
-            return;
-        }
-
-        // Color Picker
-        wp_enqueue_style('wp-color-picker');
-        wp_enqueue_script('wp-color-picker');
-        
-        // Media Uploader
-        wp_enqueue_media();
-        
-        // Custom Admin Styles
-        wp_enqueue_style(
-            'igis-bot-admin',
-            IGIS_BOT_PLUGIN_URL . 'assets/css/admin.css',
-            array(),
-            IGIS_BOT_VERSION
-        );
-        
-        // Chart.js para estadísticas
-        if ('igis-bot_page_igis-flowise-bot-stats' === $hook) {
-            wp_enqueue_script(
-                'chartjs',
-                'https://cdn.jsdelivr.net/npm/chart.js',
-                array(),
-                '3.7.0',
-                true
-            );
-        }
-        
-        // Custom Admin Scripts
-        wp_enqueue_script(
-            'igis-bot-admin',
-            IGIS_BOT_PLUGIN_URL . 'assets/js/admin.js',
-            array('jquery', 'wp-color-picker'),
-            IGIS_BOT_VERSION,
-            true
-        );
-
-        // Localize script
-        wp_localize_script('igis-bot-admin', 'igisBotAdmin', array(
-            'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('igis_bot_admin'),
-            'strings' => array(
-                'confirmDelete' => __('¿Está seguro de que desea eliminar esta conversación?', 'igis-flowise-bot'),
-                'errorLoading' => __('Error al cargar los datos', 'igis-flowise-bot'),
-                'saveSuccess' => __('Configuración guardada correctamente', 'igis-flowise-bot'),
-                'saveError' => __('Error al guardar la configuración', 'igis-flowise-bot')
-            )
-        ));
-    }
-
-    public function enqueue_frontend_assets() {
-        if (!$this->should_display_bot()) {
-            return;
-        }
-
-        // Estilos del front-end
-        wp_enqueue_style(
-            'igis-bot-frontend',
-            IGIS_BOT_PLUGIN_URL . 'assets/css/frontend.css',
-            array(),
-            IGIS_BOT_VERSION
-        );
-
-        // Scripts del front-end
-        wp_enqueue_script(
-            'igis-bot-frontend',
-            IGIS_BOT_PLUGIN_URL . 'assets/js/frontend.js',
-            array('jquery'),
-            IGIS_BOT_VERSION,
-            true
-        );
-
-        // Localizar script
-        wp_localize_script('igis-bot-frontend', 'igisBotFrontend', array(
-            'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('igis_bot_frontend'),
-            'strings' => array(
-                'errorMessage' => isset($this->options['error_message']) ? $this->options['error_message'] : 'Ha ocurrido un error.'
-            )
-        ));
-    }
-
-    public function sanitize_options($input) {
-        $sanitized = array();
-        
-        foreach ($input as $key => $value) {
-            switch ($key) {
-                // Campos de texto simples
-                case 'chatflow_id':
-                case 'window_title':
-                case 'welcome_message':
-                case 'error_message':
-                case 'input_placeholder':
-                case 'max_chars_warning':
-                case 'footer_text':
-                case 'footer_company':
-                case 'disclaimer_title':
-                case 'disclaimer_message':
-                case 'disclaimer_button_text':
-                    $sanitized[$key] = sanitize_text_field($value);
-                    break;
-
-                // URLs
-                case 'api_host':
-                case 'custom_icon':
-                case 'bot_avatar_src':
-                case 'user_avatar_src':
-                case 'send_sound_url':
-                case 'receive_sound_url':
-                case 'footer_company_link':
-                case 'webhook_url':
-                    $sanitized[$key] = esc_url_raw($value);
-                    break;
-
-                // Colores
-                case 'button_color':
-                case 'icon_color':
-                case 'window_background_color':
-                case 'bot_message_bg_color':
-                case 'bot_message_text_color':
-                case 'user_message_bg_color':
-                case 'user_message_text_color':
-                case 'input_bg_color':
-                case 'input_text_color':
-                case 'input_send_button_color':
-                case 'tooltip_bg_color':
-                case 'tooltip_text_color':
-                case 'footer_text_color':
-                case 'disclaimer_button_color':
-                case 'disclaimer_text_color':
-                case 'disclaimer_bg_color':
-                    $sanitized[$key] = sanitize_hex_color($value);
-                    break;
-
-                // Números
-                case 'button_position_right':
-                case 'button_position_bottom':
-                case 'button_size':
-                case 'window_height':
-                case 'window_width':
-                case 'font_size':
-                case 'tooltip_font_size':
-                case 'max_chars':
-                case 'auto_open_delay':
-                case 'rate_limiting':
-                case 'session_timeout':
-                    $sanitized[$key] = absint($value);
-                    break;
-
-                // Booleanos
-                case 'enable_drag':
-                case 'auto_open':
-                case 'auto_open_mobile':
-                case 'show_tooltip':
-                case 'bot_avatar_enabled':
-                case 'user_avatar_enabled':
-                case 'auto_focus':
-                case 'enable_send_sound':
-                case 'enable_receive_sound':
-                case 'show_disclaimer':
-                case 'debug_mode':
-                case 'save_conversations':
-                case 'analytics_enabled':
-                case 'show_for_logged_in':
-                case 'hide_on_mobile':
-                    $sanitized[$key] = (bool)$value;
-                    break;
-
-                // Arrays
-                case 'display_pages':
-                case 'show_for_roles':
-                case 'webhook_events':
-                    $sanitized[$key] = is_array($value) ? array_map('sanitize_text_field', $value) : array();
-                    break;
-
-                // Código personalizado
-                case 'custom_css':
-                    $sanitized[$key] = wp_strip_all_tags($value);
-                    break;
-                case 'custom_js':
-                case 'custom_headers':
-                    $sanitized[$key] = $value; // No sanitizamos JavaScript o JSON personalizado
-                    break;
-
-                // Campos multilínea
-                case 'starter_prompts':
-                    $sanitized[$key] = sanitize_textarea_field($value);
-                    break;
-
-                // Color con transparencia
-                case 'disclaimer_overlay_color':
-                    $sanitized[$key] = $value; // Permitimos rgba()
-                    break;
-
-                default:
-                    $sanitized[$key] = sanitize_text_field($value);
-                    break;
-            }
-        }
-
-        return $sanitized;
-    }
-
-    private function get_sanitized_options() {
-        return array_merge($this->get_default_options(), $this->options);
-    }
-
-    private function get_default_options() {
+    private function obtener_opciones_predeterminadas() {
         return array(
             'chatflow_id' => '',
             'api_host' => '',
+            'api_key' => '',
             'button_color' => '#3B81F6',
             'button_position_right' => 20,
             'button_position_bottom' => 20,
             'button_size' => 48,
             'enable_drag' => true,
             'icon_color' => 'white',
-            'custom_icon' => 'https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/svg/google-messages.svg',
-            'window_title' => 'IGIS Bot',
-            'welcome_message' => 'Hello! How can I help you today?',
-            'error_message' => 'Lo siento, ha ocurrido un error. Por favor, intenta de nuevo.',
+            'custom_icon' => '',
+            'window_title' => __('Asistente Virtual', 'igis-flowise-bot'),
+            'welcome_message' => __('¡Hola! ¿Cómo puedo ayudarte hoy?', 'igis-flowise-bot'),
+            'error_message' => __('Lo siento, ha ocurrido un error. Por favor, intenta de nuevo.', 'igis-flowise-bot'),
             'window_height' => 700,
             'window_width' => 400,
             'window_background_color' => '#ffffff',
@@ -1597,54 +667,1069 @@ class IGIS_Flowise_Bot {
             'bot_message_text_color' => '#303235',
             'user_message_bg_color' => '#3B81F6',
             'user_message_text_color' => '#ffffff',
-            'input_placeholder' => 'Type your question',
-            'input_bg_color' => '#ffffff',
-            'input_text_color' => '#303235',
-            'input_send_button_color' => '#3B81F6',
+            'input_placeholder' => __('Escribe tu pregunta...', 'igis-flowise-bot'),
             'show_tooltip' => true,
-            'tooltip_message' => 'Hi There 👋!',
+            'tooltip_message' => __('¡Hola! ¿Necesitas ayuda?', 'igis-flowise-bot'),
             'tooltip_bg_color' => 'black',
             'tooltip_text_color' => 'white',
-            'tooltip_font_size' => 16,
-            'footer_text_color' => '#303235',
-            'footer_text' => 'Powered by IGIS Bot',
-            'footer_company' => 'InfraestructuraGIS',
-            'footer_company_link' => 'https://www.infraestructuragis.com/'
+            'enable_voice_input' => false,
+            'enable_voice_output' => false,
+            'enable_file_upload' => false,
+            'enable_dark_mode' => true,
+            'auto_open' => false,
+            'display_pages' => array('all'),
+            'performance_mode' => true,
+            'preload_resources' => true,
+            'save_conversations' => false,
+            'analytics_enabled' => false
+        );
+    }
+
+    public function configurar_cache_objeto() {
+        if (function_exists('wp_cache_add_global_groups')) {
+            wp_cache_add_global_groups(array('igis_bot'));
+        }
+    }
+
+    public function agregar_resource_hints($hints, $relation_type) {
+        if ('preconnect' === $relation_type) {
+            $api_host = $this->opciones['api_host'] ?? '';
+            if (!empty($api_host)) {
+                $hints[] = $api_host;
+            }
+            
+            // Preconectar a CDNs comunes
+            $hints[] = 'https://cdn.jsdelivr.net';
+            $hints[] = 'https://fonts.googleapis.com';
+        }
+        
+        return $hints;
+    }
+
+    public function agregar_preload_recursos() {
+        if (!$this->deberia_mostrar_bot()) {
+            return;
+        }
+
+        if ($this->opciones['preload_resources']) {
+            echo '<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/flowise-embed/dist/web.js">';
+            echo '<link rel="preload" href="' . IGIS_BOT_PLUGIN_URL . 'assets/css/frontend.css" as="style">';
+        }
+    }
+
+    public function agregar_precargas_head() {
+        if (!$this->deberia_mostrar_bot()) {
+            return;
+        }
+
+        $api_host = $this->opciones['api_host'] ?? '';
+        if (!empty($api_host)) {
+            echo '<link rel="preconnect" href="' . esc_url($api_host) . '" crossorigin>';
+        }
+    }
+
+    public function detectar_y_aplicar_tema_oscuro() {
+        $tema_oscuro = $this->detector_tema_oscuro->detectar();
+        
+        if ($tema_oscuro) {
+            echo '<script>document.documentElement.setAttribute("data-theme", "dark");</script>';
+        }
+        
+        // Variables CSS dinámicas
+        $this->agregar_variables_css_tema($tema_oscuro);
+    }
+
+    private function agregar_variables_css_tema($tema_oscuro) {
+        $variables = $tema_oscuro ? $this->obtener_variables_tema_oscuro() : $this->obtener_variables_tema_claro();
+        
+        echo '<style id="igis-bot-theme-vars">:root {';
+        foreach ($variables as $propiedad => $valor) {
+            echo esc_attr($propiedad) . ': ' . esc_attr($valor) . ';';
+        }
+        echo '}</style>';
+    }
+
+    private function obtener_variables_tema_oscuro() {
+        return array(
+            '--igis-bg-primary' => '#1E293B',
+            '--igis-bg-secondary' => '#374151',
+            '--igis-text-primary' => '#F8FAFC',
+            '--igis-text-secondary' => '#D1D5DB',
+            '--igis-border-color' => '#4B5563'
+        );
+    }
+
+    private function obtener_variables_tema_claro() {
+        return array(
+            '--igis-bg-primary' => '#FFFFFF',
+            '--igis-bg-secondary' => '#F8FAFC',
+            '--igis-text-primary' => '#1E293B',
+            '--igis-text-secondary' => '#64748B',
+            '--igis-border-color' => '#E2E8F0'
+        );
+    }
+
+    public function agregar_variables_css_personalizadas() {
+        if (!$this->deberia_mostrar_bot()) {
+            return;
+        }
+
+        $variables_personalizadas = array(
+            '--igis-bot-primary-color' => $this->opciones['button_color'] ?? '#3B81F6',
+            '--igis-bot-window-width' => ($this->opciones['window_width'] ?? 400) . 'px',
+            '--igis-bot-window-height' => ($this->opciones['window_height'] ?? 700) . 'px',
+            '--igis-bot-font-size' => ($this->opciones['font_size'] ?? 16) . 'px'
+        );
+
+        echo '<style id="igis-bot-custom-vars">:root {';
+        foreach ($variables_personalizadas as $propiedad => $valor) {
+            echo esc_attr($propiedad) . ': ' . esc_attr($valor) . ';';
+        }
+        echo '}</style>';
+    }
+
+    public function agregar_clases_tema_body($clases) {
+        if ($this->detector_tema_oscuro->detectar()) {
+            $clases[] = 'igis-bot-tema-oscuro';
+        }
+        
+        if ($this->opciones['performance_mode']) {
+            $clases[] = 'igis-bot-performance-mode';
+        }
+        
+        return $clases;
+    }
+
+    private function configurar_cache_transients() {
+        // Configurar cache para diferentes componentes
+        set_transient('igis_bot_version_cache', IGIS_BOT_VERSION, DAY_IN_SECONDS);
+        
+        $configuracion_cache = array(
+            'version' => IGIS_BOT_VERSION,
+            'timestamp' => current_time('timestamp'),
+            'opciones_hash' => md5(serialize($this->opciones))
+        );
+        
+        set_transient('igis_bot_configuracion_cache', $configuracion_cache, IGIS_BOT_CACHE_TIME);
+    }
+
+    private function deberia_mostrar_bot() {
+        $cache_key = 'igis_bot_mostrar_' . get_current_user_id() . '_' . get_the_ID();
+        $mostrar = wp_cache_get($cache_key, 'igis_bot');
+        
+        if (false === $mostrar) {
+            $mostrar = $this->evaluar_condiciones_mostrar();
+            wp_cache_set($cache_key, $mostrar, 'igis_bot', 300); // Cache por 5 minutos
+        }
+        
+        return $mostrar;
+    }
+
+    private function evaluar_condiciones_mostrar() {
+        // Verificar si estamos en admin
+        if (is_admin()) {
+            return false;
+        }
+
+        // Verificar configuración básica
+        if (empty($this->opciones['chatflow_id']) || empty($this->opciones['api_host'])) {
+            return false;
+        }
+
+        // Verificar páginas de visualización
+        $paginas_mostrar = $this->opciones['display_pages'] ?? array('all');
+        
+        if (in_array('all', $paginas_mostrar)) {
+            return true;
+        }
+
+        // Evaluar páginas específicas
+        if (is_front_page() && in_array('front_page', $paginas_mostrar)) {
+            return true;
+        }
+
+        if (is_page() && in_array(get_the_ID(), $paginas_mostrar)) {
+            return true;
+        }
+
+        // Más condiciones...
+        return false;
+    }
+
+    public function renderizar_bot() {
+        if (!$this->deberia_mostrar_bot()) {
+            return;
+        }
+
+        $configuracion_bot = $this->generar_configuracion_bot();
+        $this->generar_script_bot($configuracion_bot);
+        $this->generar_estilos_personalizados();
+        $this->generar_script_tracking();
+    }
+
+    private function generar_configuracion_bot() {
+        $configuracion_base = array(
+            'chatflowid' => $this->opciones['chatflow_id'],
+            'apiHost' => $this->opciones['api_host']
+        );
+
+        if (!empty($this->opciones['api_key'])) {
+            $configuracion_base['apiKey'] = $this->opciones['api_key'];
+        }
+
+        $configuracion_tema = $this->generar_configuracion_tema();
+        
+        return array_merge($configuracion_base, $configuracion_tema);
+    }
+
+    private function generar_configuracion_tema() {
+        return array(
+            'theme' => array(
+                'button' => array(
+                    'backgroundColor' => $this->opciones['button_color'],
+                    'right' => (int) $this->opciones['button_position_right'],
+                    'bottom' => (int) $this->opciones['button_position_bottom'],
+                    'size' => (int) $this->opciones['button_size'],
+                    'iconColor' => $this->opciones['icon_color'],
+                    'customIconSrc' => $this->opciones['custom_icon'],
+                    'dragable' => (bool) $this->opciones['enable_drag']
+                ),
+                'chatWindow' => array(
+                    'welcomeMessage' => $this->opciones['welcome_message'],
+                    'backgroundColor' => $this->opciones['window_background_color'],
+                    'height' => (int) $this->opciones['window_height'],
+                    'width' => (int) $this->opciones['window_width'],
+                    'fontSize' => (int) $this->opciones['font_size'],
+                    'title' => $this->opciones['window_title']
+                ),
+                'userMessage' => array(
+                    'backgroundColor' => $this->opciones['user_message_bg_color'],
+                    'textColor' => $this->opciones['user_message_text_color']
+                ),
+                'botMessage' => array(
+                    'backgroundColor' => $this->opciones['bot_message_bg_color'],
+                    'textColor' => $this->opciones['bot_message_text_color']
+                )
+            )
+        );
+    }
+
+    private function generar_script_bot($configuracion) {
+        ?>
+        <script type="module" id="igis-bot-embed">
+            import Chatbot from "https://cdn.jsdelivr.net/npm/flowise-embed/dist/web.js";
+            
+            // Configuración optimizada
+            const configuracionBot = <?php echo wp_json_encode($configuracion); ?>;
+            
+            // Inicialización con performance optimizada
+            if (window.requestIdleCallback) {
+                window.requestIdleCallback(() => {
+                    Chatbot.init(configuracionBot);
+                });
+            } else {
+                setTimeout(() => {
+                    Chatbot.init(configuracionBot);
+                }, 0);
+            }
+
+            // Eventos personalizados
+            document.addEventListener('flowise:ready', function() {
+                console.log('IGIS Bot inicializado correctamente');
+                document.dispatchEvent(new CustomEvent('igis:bot:listo'));
+            });
+        </script>
+        <?php
+    }
+
+    private function generar_estilos_personalizados() {
+        if (!empty($this->opciones['custom_css'])) {
+            echo '<style type="text/css" id="igis-bot-custom-css">';
+            echo wp_strip_all_tags($this->opciones['custom_css']);
+            echo '</style>';
+        }
+    }
+
+    private function generar_script_tracking() {
+        if ($this->opciones['save_conversations'] || $this->opciones['analytics_enabled']) {
+            ?>
+            <script id="igis-bot-tracking">
+            document.addEventListener('DOMContentLoaded', function() {
+                // Generar ID de sesión único
+                let sessionId = localStorage.getItem('igis_bot_session_id');
+                if (!sessionId) {
+                    sessionId = 'sess_' + Math.random().toString(36).substring(2, 15) + Date.now();
+                    localStorage.setItem('igis_bot_session_id', sessionId);
+                }
+
+                // Tracking de eventos
+                const trackEvent = function(evento, datos = {}) {
+                    if (!<?php echo json_encode($this->opciones['analytics_enabled']); ?>) return;
+                    
+                    fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams({
+                            action: 'igis_bot_track_evento',
+                            nonce: '<?php echo wp_create_nonce('igis_bot_tracking'); ?>',
+                            evento: evento,
+                            datos: JSON.stringify(datos),
+                            session_id: sessionId
+                        })
+                    });
+                };
+
+                // Eventos del bot
+                document.addEventListener('flowise:chatOpen', () => trackEvent('bot_abierto'));
+                document.addEventListener('flowise:chatClose', () => trackEvent('bot_cerrado'));
+                document.addEventListener('flowise:messageSubmitted', (e) => {
+                    trackEvent('mensaje_enviado', { mensaje: e.detail.message });
+                });
+            });
+            </script>
+            <?php
+        }
+    }
+
+    // Resto de métodos para AJAX, admin, etc...
+    private function registrar_manejadores_ajax() {
+        add_action('wp_ajax_igis_bot_track_evento', array($this, 'manejar_track_evento'));
+        add_action('wp_ajax_nopriv_igis_bot_track_evento', array($this, 'manejar_track_evento'));
+    }
+
+    public function manejar_track_evento() {
+        if (!check_ajax_referer('igis_bot_tracking', 'nonce', false)) {
+            wp_send_json_error('Nonce inválido');
+        }
+
+        $evento = sanitize_text_field($_POST['evento'] ?? '');
+        $datos = json_decode(sanitize_textarea_field($_POST['datos'] ?? '{}'), true);
+        $session_id = sanitize_text_field($_POST['session_id'] ?? '');
+
+        global $wpdb;
+        $tabla = $wpdb->prefix . 'igis_bot_analytics';
+        
+        $wpdb->insert(
+            $tabla,
+            array(
+                'tipo_evento' => $evento,
+                'datos_evento' => wp_json_encode($datos),
+                'sesion_id' => $session_id,
+                'usuario_id' => get_current_user_id(),
+                'timestamp' => current_time('mysql')
+            )
+        );
+
+        wp_send_json_success();
+    }
+
+    // Métodos para admin y configuración
+    public function agregar_menu_admin() {
+        add_menu_page(
+            __('IGIS Flowise Bot', 'igis-flowise-bot'),
+            __('IGIS Bot', 'igis-flowise-bot'),
+            'manage_options',
+            'igis-flowise-bot',
+            array($this, 'renderizar_pagina_admin'),
+            'dashicons-format-chat',
+            99
+        );
+
+        add_submenu_page(
+            'igis-flowise-bot',
+            __('Configuración', 'igis-flowise-bot'),
+            __('Configuración', 'igis-flowise-bot'),
+            'manage_options',
+            'igis-flowise-bot'
+        );
+
+        add_submenu_page(
+            'igis-flowise-bot',
+            __('Estadísticas', 'igis-flowise-bot'),
+            __('Analytics', 'igis-flowise-bot'),
+            'manage_options',
+            'igis-flowise-bot-stats',
+            array($this, 'renderizar_pagina_estadisticas')
+        );
+    }
+
+    public function registrar_configuraciones() {
+        register_setting('igis_bot_options', 'igis_bot_options', array($this, 'sanitizar_opciones'));
+    }
+
+    public function renderizar_pagina_admin() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        
+        include_once IGIS_BOT_PLUGIN_DIR . 'templates/admin-page.php';
+    }
+
+    public function renderizar_pagina_estadisticas() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        
+        include_once IGIS_BOT_PLUGIN_DIR . 'templates/stats-page.php';
+    }
+
+    public function encolar_assets_admin($hook) {
+        if (strpos($hook, 'igis-flowise-bot') === false) {
+            return;
+        }
+
+        wp_enqueue_style('wp-color-picker');
+        wp_enqueue_script('wp-color-picker');
+        wp_enqueue_media();
+
+        wp_enqueue_style(
+            'igis-bot-admin',
+            IGIS_BOT_PLUGIN_URL . 'assets/css/admin.css',
+            array(),
+            IGIS_BOT_VERSION
+        );
+
+        wp_enqueue_script(
+            'igis-bot-admin',
+            IGIS_BOT_PLUGIN_URL . 'assets/js/admin.js',
+            array('jquery', 'wp-color-picker'),
+            IGIS_BOT_VERSION,
+            true
+        );
+
+        wp_localize_script('igis-bot-admin', 'igisBotAdmin', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('igis_bot_admin'),
+            'version' => IGIS_BOT_VERSION,
+            'precargar_datos' => true,
+            'cadenas' => array(
+                'guardar_exito' => __('Configuración guardada correctamente', 'igis-flowise-bot'),
+                'error_guardar' => __('Error al guardar la configuración', 'igis-flowise-bot'),
+                'confirmar_eliminar' => __('¿Estás seguro de eliminar esta conversación?', 'igis-flowise-bot')
+            )
+        ));
+    }
+
+    public function encolar_assets_frontend() {
+        if (!$this->deberia_mostrar_bot()) {
+            return;
+        }
+
+        wp_enqueue_style(
+            'igis-bot-frontend',
+            IGIS_BOT_PLUGIN_URL . 'assets/css/frontend.css',
+            array(),
+            IGIS_BOT_VERSION
+        );
+
+        if ($this->opciones['performance_mode']) {
+            wp_script_add_data('igis-bot-frontend', 'async', true);
+        }
+    }
+
+    public function sanitizar_opciones($input) {
+        $sanitized = array();
+        
+        foreach ($input as $key => $value) {
+            switch ($key) {
+                case 'chatflow_id':
+                case 'api_key':
+                    $sanitized[$key] = sanitize_text_field($value);
+                    break;
+                case 'api_host':
+                    $sanitized[$key] = esc_url_raw($value);
+                    break;
+                case 'button_color':
+                case 'window_background_color':
+                case 'bot_message_bg_color':
+                case 'user_message_bg_color':
+                    $sanitized[$key] = sanitize_hex_color($value);
+                    break;
+                case 'window_height':
+                case 'window_width':
+                case 'button_size':
+                case 'font_size':
+                    $sanitized[$key] = absint($value);
+                    break;
+                case 'enable_drag':
+                case 'show_tooltip':
+                case 'auto_open':
+                case 'performance_mode':
+                case 'enable_dark_mode':
+                    $sanitized[$key] = (bool) $value;
+                    break;
+                case 'display_pages':
+                    $sanitized[$key] = is_array($value) ? array_map('sanitize_text_field', $value) : array();
+                    break;
+                default:
+                    $sanitized[$key] = sanitize_textarea_field($value);
+                    break;
+            }
+        }
+
+        // Limpiar cache después de actualizar opciones
+        wp_cache_delete('igis_bot_opciones_' . md5(IGIS_BOT_VERSION), 'igis_bot');
+        
+        return $sanitized;
+    }
+}
+
+/**
+ * Clase para gestión de cache optimizada
+ */
+class IGIS_Cache_Manager {
+    private $cache_group = 'igis_bot';
+    private $cache_expiration = IGIS_BOT_CACHE_TIME;
+
+    public function obtener($key, $default = false) {
+        return wp_cache_get($key, $this->cache_group) ?: $default;
+    }
+
+    public function establecer($key, $data, $expiration = null) {
+        $expiration = $expiration ?: $this->cache_expiration;
+        return wp_cache_set($key, $data, $this->cache_group, $expiration);
+    }
+
+    public function eliminar($key) {
+        return wp_cache_delete($key, $this->cache_group);
+    }
+
+    public function limpiar_todo() {
+        if (function_exists('wp_cache_flush_group')) {
+            wp_cache_flush_group($this->cache_group);
+        } else {
+            wp_cache_flush();
+        }
+    }
+
+    public function obtener_estadisticas_cache() {
+        return array(
+            'hits' => wp_cache_get('cache_hits', $this->cache_group) ?: 0,
+            'misses' => wp_cache_get('cache_misses', $this->cache_group) ?: 0
         );
     }
 }
 
-// Inicializar el plugin
-function igis_flowise_bot_init() {
-    return IGIS_Flowise_Bot::get_instance();
-}
-
-// Función de instalación
-function igis_flowise_bot_install() {
-    $plugin = IGIS_Flowise_Bot::get_instance();
-    $plugin->activate();
-}
-
-// Función de desinstalación
-function igis_flowise_bot_uninstall() {
-    global $wpdb;
+/**
+ * Clase para optimizaciones de performance
+ */
+class IGIS_Optimizador_Performance {
     
-    // Solo si se ha habilitado la opción de eliminar datos
-    if (get_option('igis_bot_delete_data')) {
-        // Eliminar tablas
-        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}igis_bot_messages");
-        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}igis_bot_conversations");
-        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}igis_bot_analytics");
+    public function __construct() {
+        add_action('wp_head', array($this, 'agregar_optimizaciones_head'), 1);
+        add_filter('script_loader_tag', array($this, 'optimizar_scripts'), 10, 3);
+        add_filter('style_loader_tag', array($this, 'optimizar_estilos'), 10, 4);
+    }
+
+    public function agregar_optimizaciones_head() {
+        // Resource hints optimizados
+        echo '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">';
+        echo '<link rel="dns-prefetch" href="//cdn.jsdelivr.net">';
+        echo '<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>';
         
-        // Eliminar opciones
-        delete_option('igis_bot_options');
-        delete_option('igis_bot_delete_data');
+        // Critical CSS inline si está disponible
+        $this->insertar_css_critico();
+    }
+
+    private function insertar_css_critico() {
+        $css_critico = $this->generar_css_critico();
+        if (!empty($css_critico)) {
+            echo '<style id="igis-critical-css">' . $css_critico . '</style>';
+        }
+    }
+
+    private function generar_css_critico() {
+        return ".flowise-chatbot-button{position:fixed;z-index:9999;border-radius:50%;transition:transform .3s ease}";
+    }
+
+    public function optimizar_scripts($tag, $handle, $src) {
+        if (strpos($handle, 'igis-bot') !== false) {
+            // Agregar async/defer según el tipo de script
+            if (strpos($handle, 'admin') === false) {
+                $tag = str_replace(' src', ' async defer src', $tag);
+            }
+        }
+        return $tag;
+    }
+
+    public function optimizar_estilos($html, $handle, $href, $media) {
+        if (strpos($handle, 'igis-bot') !== false) {
+            // Cargar CSS de forma no bloqueante
+            $html = str_replace(" rel='stylesheet'", " rel='preload' as='style' onload=\"this.onload=null;this.rel='stylesheet'\"", $html);
+            $html .= "<noscript><link rel='stylesheet' href='{$href}' media='{$media}'></noscript>";
+        }
+        return $html;
+    }
+
+    public function minificar_css($css) {
+        // Minificación básica de CSS
+        $css = preg_replace('!/\*[^*]*\*+([^/][^*]*\*+)*/!', '', $css);
+        $css = str_replace(array("\r\n", "\r", "\n", "\t", '  ', '    ', '    '), '', $css);
+        return $css;
+    }
+
+    public function minificar_js($js) {
+        // Minificación básica de JavaScript
+        $js = preg_replace('/(?:(?:\/\*(?:[^*]|(?:\*+[^*\/]))*\*+\/)|(?:(?<!\:|\\\|\'|\")\/\/.*))/', '', $js);
+        $js = str_replace(array("\r\n", "\r", "\n", "\t"), '', $js);
+        return $js;
     }
 }
 
-// Registrar hooks
-register_activation_hook(__FILE__, 'igis_flowise_bot_install');
-register_uninstall_hook(__FILE__, 'igis_flowise_bot_uninstall');
+/**
+ * Clase para detectar tema oscuro
+ */
+class IGIS_Detector_Tema_Oscuro {
+    
+    public function detectar() {
+        // Detectar preferencia del sistema
+        $preferencia_sistema = $this->detectar_preferencia_sistema();
+        
+        // Detectar tema de WordPress admin
+        $tema_wp_admin = $this->detectar_tema_wp_admin();
+        
+        // Detectar tema del frontend
+        $tema_frontend = $this->detectar_tema_frontend();
+        
+        return $preferencia_sistema || $tema_wp_admin || $tema_frontend;
+    }
 
-// Arrancar el plugin
-add_action('plugins_loaded', 'igis_flowise_bot_init');
+    private function detectar_preferencia_sistema() {
+        // Esto se manejará con JavaScript en el frontend
+        return false;
+    }
+
+    private function detectar_tema_wp_admin() {
+        if (!is_admin()) {
+            return false;
+        }
+
+        $esquema_color = get_user_option('admin_color');
+        $temas_oscuros = array('midnight', 'ectoplasm', 'coffee', 'blue');
+        
+        return in_array($esquema_color, $temas_oscuros);
+    }
+
+    private function detectar_tema_frontend() {
+        // Detectar si el tema activo soporta tema oscuro
+        return current_theme_supports('dark-mode') || 
+               $this->tiene_clase_body_tema_oscuro();
+    }
+
+    private function tiene_clase_body_tema_oscuro() {
+        $clases_tema_oscuro = array('dark-mode', 'dark-theme', 'night-mode', 'tema-oscuro');
+        $body_class = get_body_class();
+        
+        return !empty(array_intersect($clases_tema_oscuro, $body_class));
+    }
+
+    public function obtener_variables_css_tema_oscuro() {
+        return array(
+            '--igis-bg-primary' => '#1a1a1a',
+            '--igis-bg-secondary' => '#2d2d2d',
+            '--igis-text-primary' => '#ffffff',
+            '--igis-text-secondary' => '#cccccc',
+            '--igis-border-color' => '#404040',
+            '--igis-shadow' => '0 4px 6px -1px rgba(0, 0, 0, 0.3)'
+        );
+    }
+}
+
+/**
+ * Clase para precargar recursos
+ */
+class IGIS_Precargador_Recursos {
+    private $recursos_precarga = array();
+
+    public function __construct() {
+        add_action('wp_head', array($this, 'generar_precargas'), 2);
+        add_action('wp_footer', array($this, 'precargar_recursos_criticos'), 1);
+    }
+
+    public function agregar_recurso($url, $tipo = 'script', $crossorigin = false) {
+        $this->recursos_precarga[] = array(
+            'url' => $url,
+            'tipo' => $tipo,
+            'crossorigin' => $crossorigin
+        );
+    }
+
+    public function generar_precargas() {
+        // Precargar recursos críticos
+        $this->agregar_recurso('https://cdn.jsdelivr.net/npm/flowise-embed/dist/web.js', 'script', true);
+        
+        foreach ($this->recursos_precarga as $recurso) {
+            $crossorigin = $recurso['crossorigin'] ? ' crossorigin' : '';
+            echo '<link rel="modulepreload" href="' . esc_url($recurso['url']) . '"' . $crossorigin . '>';
+        }
+    }
+
+    public function precargar_recursos_criticos() {
+        // Precargar imágenes críticas si están configuradas
+        $icono_personalizado = IGIS_Flowise_Bot::obtener_instancia()->opciones['custom_icon'] ?? '';
+        if (!empty($icono_personalizado)) {
+            echo '<link rel="preload" href="' . esc_url($icono_personalizado) . '" as="image">';
+        }
+    }
+}
+
+// Función de inicialización
+function igis_flowise_bot_inicializar() {
+    return IGIS_Flowise_Bot::obtener_instancia();
+}
+
+// Hooks de activación/desactivación
+register_activation_hook(__FILE__, function() {
+    IGIS_Flowise_Bot::obtener_instancia()->activar_plugin();
+});
+
+register_deactivation_hook(__FILE__, function() {
+    IGIS_Flowise_Bot::obtener_instancia()->desactivar_plugin();
+});
+
+// Inicializar el plugin
+add_action('plugins_loaded', 'igis_flowise_bot_inicializar');
+
+// Funciones auxiliares públicas
+if (!function_exists('igis_bot_obtener_opcion')) {
+    function igis_bot_obtener_opcion($clave, $predeterminado = null) {
+        $instancia = IGIS_Flowise_Bot::obtener_instancia();
+        return $instancia->opciones[$clave] ?? $predeterminado;
+    }
+}
+
+if (!function_exists('igis_bot_esta_activo')) {
+    function igis_bot_esta_activo() {
+        $instancia = IGIS_Flowise_Bot::obtener_instancia();
+        return !empty($instancia->opciones['chatflow_id']) && !empty($instancia->opciones['api_host']);
+    }
+}
+
+// Compatibilidad con versiones anteriores
+class_alias('IGIS_Flowise_Bot', 'IGISFlowiseBot');
+(function($) {
+    'use strict';
+
+    const IGISBotAdmin = {
+        cache: new Map(),
+        elementos: {},
+        configuracion: window.igisBotAdmin || {},
+
+        init() {
+            this.cachearElementos();
+            this.configurarEventos();
+            this.inicializarComponentes();
+            this.configurarTemaOscuro();
+            this.optimizarPerformance();
+        },
+
+        cachearElementos() {
+            this.elementos = {
+                formulario: $('#igis-bot-settings-form'),
+                pestanas: $('.nav-tab-wrapper a'),
+                secciones: $('.settings-section'),
+                selectoresColor: $('.color-picker'),
+                vistaPrevia: $('.preview-bot'),
+                modalPrevia: $('#bot-preview')
+            };
+        },
+
+        configurarEventos() {
+            // Navegación por pestañas optimizada
+            this.elementos.pestanas.on('click', this.manejarCambioPestana.bind(this));
+            
+            // Vista previa del bot
+            this.elementos.vistaPrevia.on('click', this.mostrarVistaPrevia.bind(this));
+            
+            // Cerrar vista previa
+            $(document).on('click', '.close-preview', this.cerrarVistaPrevia.bind(this));
+            
+            // Media uploader
+            $(document).on('click', '.upload-media-button', this.abrirMediaUploader.bind(this));
+            
+            // Auto-guardar (debounced)
+            this.elementos.formulario.on('input change', this.debounce(this.autoGuardar.bind(this), 1000));
+        },
+
+        inicializarComponentes() {
+            // Color pickers con tema oscuro
+            this.elementos.selectoresColor.wpColorPicker({
+                change: this.actualizarVistaPrevia.bind(this),
+                clear: this.actualizarVistaPrevia.bind(this)
+            });
+
+            this.mostrarPestanaActiva();
+            this.configurarCamposDependientes();
+        },
+
+        configurarTemaOscuro() {
+            const temaOscuro = this.detectarTemaOscuro();
+            if (temaOscuro) {
+                $('body').addClass('igis-tema-oscuro');
+                this.aplicarEstilosTemaOscuro();
+            }
+
+            // Escuchar cambios de tema
+            if (window.matchMedia) {
+                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+                    if (e.matches) {
+                        this.activarTemaOscuro();
+                    } else {
+                        this.activarTemaClaro();
+                    }
+                });
+            }
+        },
+
+        detectarTemaOscuro() {
+            // Detectar tema del sistema
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                return true;
+            }
+            
+            // Detectar tema de WordPress admin
+            if ($('body').hasClass('admin-color-dark') || 
+                $('body').hasClass('admin-color-scheme-dark')) {
+                return true;
+            }
+            
+            return false;
+        },
+
+        aplicarEstilosTemaOscuro() {
+            const estilosOscuros = {
+                'background-color': '#1E293B',
+                'color': '#F8FAFC'
+            };
+            
+            $('.igis-bot-admin-wrap').css(estilosOscuros);
+        },
+
+        optimizarPerformance() {
+            // Intersection Observer para lazy loading
+            if ('IntersectionObserver' in window) {
+                const observer = new IntersectionObserver(this.manejarInterseccion.bind(this));
+                $('.settings-section').each(function() {
+                    observer.observe(this);
+                });
+            }
+
+            // Precargar datos críticos
+            this.precargarDatosCriticos();
+        },
+
+        manejarInterseccion(entries) {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    $(entry.target).addClass('igis-performance-optimized');
+                }
+            });
+        },
+
+        manejarCambioPestana(e) {
+            e.preventDefault();
+            
+            const pestanaActual = $(e.currentTarget);
+            const seccionObjetivo = pestanaActual.attr('href').substring(1);
+            
+            // Optimización: solo cambiar si es diferente
+            if (pestanaActual.hasClass('nav-tab-active')) {
+                return;
+            }
+            
+            // Remover estados activos
+            this.elementos.pestanas.removeClass('nav-tab-active');
+            this.elementos.secciones.removeClass('active').hide();
+            
+            // Activar nueva pestaña
+            pestanaActual.addClass('nav-tab-active');
+            $('#section-' + seccionObjetivo).addClass('active').fadeIn(300);
+            
+            // Actualizar URL
+            if (history.replaceState) {
+                history.replaceState(null, null, '#' + seccionObjetivo);
+            }
+            
+            // Trigger evento personalizado
+            $(document).trigger('igis:pestana:cambiada', [seccionObjetivo]);
+        },
+
+        mostrarPestanaActiva() {
+            const hashActual = window.location.hash.substring(1);
+            let pestanaActivar = 'general';
+            
+            if (hashActual && $('#section-' + hashActual).length) {
+                pestanaActivar = hashActual;
+            }
+            
+            $('.nav-tab-wrapper a[href=\"#' + pestanaActivar + '\"]').trigger('click');
+        },
+
+        mostrarVistaPrevia() {
+            const configuracion = this.recopilarConfiguracion();
+            this.renderizarVistaPreviaBot(configuracion);
+            this.elementos.modalPrevia.fadeIn(300);
+        },
+
+        recopilarConfiguracion() {
+            const config = {};
+            
+            this.elementos.formulario.find('input, select, textarea').each(function() {
+                const campo = $(this);
+                const nombre = campo.attr('name');
+                
+                if (nombre && nombre.startsWith('igis_bot_options[')) {
+                    const nombreOpcion = nombre.match(/\\[(.+?)\\]/)[1];
+                    let valor;
+                    
+                    if (campo.is(':checkbox')) {
+                        valor = campo.is(':checked');
+                    } else if (campo.is('select[multiple]')) {
+                        valor = campo.val() || [];
+                    } else {
+                        valor = campo.val();
+                    }
+                    
+                    config[nombreOpcion] = valor;
+                }
+            });
+            
+            return config;
+        },
+
+        renderizarVistaPreviaBot(config) {
+            const contenedor = $('.bot-preview-content');
+            contenedor.html(this.generarHTMLVistaPrevia(config));
+            this.configurarInteraccionesVistaPrevia();
+        },
+
+        generarHTMLVistaPrevia(config) {
+            return `
+                <div class=\"bot-preview-header\">
+                    <h3>Vista Previa del Bot</h3>
+                    <button class=\"close-preview\">&times;</button>
+                </div>
+                <div class=\"preview-container\" style=\"position: relative; height: 500px; background: #f5f5f5;\">
+                    <div class=\"preview-chatbot-button\" style=\"
+                        position: absolute;
+                        right: ${config.button_position_right || 20}px;
+                        bottom: ${config.button_position_bottom || 20}px;
+                        width: ${config.button_size || 48}px;
+                        height: ${config.button_size || 48}px;
+                        border-radius: 50%;
+                        background: ${config.button_color || '#3B81F6'};
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        cursor: pointer;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                        transition: transform 0.3s ease;
+                    \">
+                        <img src=\"${config.custom_icon || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJMMTMuMDkgOC4yNkwyMCA5TDEzLjA5IDE1Ljc0TDEyIDIyTDEwLjkxIDE1Ljc0TDQgOUwxMC45MSA4LjI2TDEyIDJaIiBmaWxsPSJ3aGl0ZSIvPgo8L3N2Zz4K'}\" 
+                             style=\"width: 24px; height: 24px;\">
+                    </div>
+                    ${config.show_tooltip ? `
+                    <div class=\"preview-tooltip\" style=\"
+                        position: absolute;
+                        right: ${parseInt(config.button_position_right || 20) + parseInt(config.button_size || 48) + 10}px;
+                        bottom: ${parseInt(config.button_position_bottom || 20) + parseInt(config.button_size || 48)/2 - 15}px;
+                        background: ${config.tooltip_bg_color || 'black'};
+                        color: ${config.tooltip_text_color || 'white'};
+                        padding: 8px 12px;
+                        border-radius: 8px;
+                        font-size: ${config.tooltip_font_size || 14}px;
+                        white-space: nowrap;
+                    \">
+                        ${config.tooltip_message || 'Hola! ¿Cómo puedo ayudarte?'}
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        },
+
+        configurarInteraccionesVistaPrevia() {
+            $('.preview-chatbot-button').on('click', function() {
+                $(this).css('transform', 'scale(0.95)');
+                setTimeout(() => {
+                    $(this).css('transform', 'scale(1)');
+                }, 150);
+            });
+        },
+
+        cerrarVistaPrevia() {
+            this.elementos.modalPrevia.fadeOut(300);
+        },
+
+        autoGuardar() {
+            const datosFormulario = this.elementos.formulario.serialize();
+            
+            // Guardar en localStorage como respaldo
+            localStorage.setItem('igis_bot_configuracion_temporal', datosFormulario);
+            
+            // Mostrar indicador de guardado
+            this.mostrarNotificacion('Configuración guardada automáticamente', 'success');
+        },
+
+        mostrarNotificacion(mensaje, tipo = 'info') {
+            const notificacion = $(`
+                <div class=\"notice notice-${tipo} is-dismissible igis-notification\">
+                    <p>${mensaje}</p>
+                </div>
+            `);
+            
+            $('.igis-bot-admin-wrap h1').after(notificacion);
+            
+            setTimeout(() => {
+                notificacion.slideUp(300, function() {
+                    $(this).remove();
+                });
+            }, 3000);
+        },
+
+        debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        },
+
+        precargarDatosCriticos() {
+            // Precargar configuraciones frecuentemente usadas
+            if (this.configuracion.precargar_datos) {
+                const datosPrecargar = ['configuracion_general', 'estadisticas_basicas'];
+                datosPrecargar.forEach(this.precargarDato.bind(this));
+            }
+        },
+
+        precargarDato(clave) {
+            if (!this.cache.has(clave)) {
+                $.ajax({
+                    url: this.configuracion.ajaxUrl,
+                    method: 'POST',
+                    data: {
+                        action: `igis_bot_precargar_${clave}`,
+                        nonce: this.configuracion.nonce
+                    },
+                    success: (respuesta) => {
+                        if (respuesta.success) {
+                            this.cache.set(clave, respuesta.data);
+                        }
+                    }
+                });
+            }
+        }
+    };
+
+    // Inicializar cuando el DOM esté listo
+    $(document).ready(() => {
+        IGISBotAdmin.init();
+    });
+
+})(jQuery);";
