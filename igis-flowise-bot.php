@@ -1022,7 +1022,6 @@ textarea:focus-visible {
             )
         );
 
-        wp_send_json_success();
     }
 
     // Métodos para admin y configuración
